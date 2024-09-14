@@ -1,7 +1,7 @@
 import os
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 import yaml
 from dotenv import load_dotenv
@@ -11,6 +11,8 @@ from loguru import logger
 from ch03.llm import (
   FunctionCall,
   LLMParams,
+  Message,
+  RoleType,
   call_llm,
   call_llm_streaming,
 )
@@ -24,16 +26,13 @@ if not os.path.exists(PROMPT_DIR):
   raise ValueError(
     f"Prompt directory {PROMPT_DIR} does not exist."
   )
-#
-
-RoleType = Literal["system", "assistant", "user"]
 
 #
 
 
 def parse_frontmatter(
   content: str,
-) -> tuple[dict, str]:
+) -> tuple[dict[str, Any], str]:
   """
   Parse frontmatter from a string content.
 
@@ -56,7 +55,7 @@ def parse_frontmatter(
   frontmatter is found, an empty dictionary is
   returned along with the original content.
   """
-  metadata = {}
+  metadata: dict[str, Any] = {}
   if content.startswith("---"):
     end = content.find("---", 3)
     if end != -1:
@@ -167,7 +166,10 @@ class Prompt:
       f.write(self.template)
     return full_path
 
-  def render(self, **kwargs) -> str:
+  def render(
+    self,
+    **kwargs: Any,
+  ) -> str:
     """
     Render the prompt template with the given variables.
     """
@@ -176,10 +178,10 @@ class Prompt:
 
   async def call_llm(
     self,
-    history: list[dict[str, str]] | None = None,
+    history: list[Message] | None = None,
     user_input: str | None = None,
     functions: list[dict[str, Any]] | None = None,
-    **template_vars,
+    **template_vars: Any,
   ) -> str | FunctionCall:
     """
     Call the LLM with the given prompt input,
@@ -196,10 +198,10 @@ class Prompt:
 
   async def call_llm_streaming(
     self,
-    history: list[dict[str, str]] | None = None,
+    history: list[Message] | None = None,
     user_input: str | None = None,
     functions: list[dict[str, Any]] | None = None,
-    **template_vars,
+    **template_vars: Any,
   ) -> AsyncGenerator[dict[str, Any], None]:
     """
     Call the LLM with streaming enabled.
@@ -217,15 +219,15 @@ class Prompt:
   def _prepare_messages(
     self,
     template_vars: dict[str, Any],
-    history: list[dict[str, str]] | None = None,
+    history: list[Message] | None = None,
     user_input: str | None = None,
-  ) -> list[dict[str, str]]:
+  ) -> list[Message]:
     """
     Prepare the messages for the LLM call.
     """
     prompt = self.render(**template_vars)
 
-    messages = []
+    messages: list[Message] = []
     if self.role == "system":
       messages.append(
         {"role": self.role, "content": prompt}

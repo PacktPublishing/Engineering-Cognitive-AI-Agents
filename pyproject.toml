@@ -11,13 +11,19 @@ dependencies = [
     "loguru>=0.7.2",
     "chromadb>=0.5.5",
     "sentence-transformers>=3.0.1",
+    "pytest-asyncio>=0.24.0",
 ]
 readme = "README.md"
 requires-python = ">=3.12.4"
 
 [tool.rye]
 managed = true
-dev-dependencies = ["pre-commit>=3.7.1", "ipykernel>=6.29.5", "pytest>=8.3.2"]
+dev-dependencies = [
+    "pre-commit>=3.7.1",
+    "ipykernel>=6.29.5",
+    "pytest>=8.3.2",
+    "ruff>=0.6.5",
+]
 
 [tool.ruff]
 line-length = 55 # Book formatting
@@ -39,3 +45,4 @@ ch03_greeting = "chainlit run src/ch03/winston_greeting.py"
 ch03_advanced = "chainlit run src/ch03/winston_advanced.py"
 ch03_router = "chainlit run src/ch03/winston_router.py"
 ch04_knows = "chainlit run src/ch04/winston_knows.py"
+ch05_remembers = "chainlit run src/ch05/winston_remembers.py"

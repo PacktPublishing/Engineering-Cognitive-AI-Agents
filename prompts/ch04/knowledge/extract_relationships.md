@@ -1,7 +1,7 @@
 ---
 model: gpt-4o-mini
 temperature: 0.3
-max_tokens: 200
+max_tokens: 8192
 ---
 
 # Extract Relationships (NLP)

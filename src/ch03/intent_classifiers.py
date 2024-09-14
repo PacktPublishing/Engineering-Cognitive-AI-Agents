@@ -7,13 +7,14 @@ import json
 from loguru import logger
 
 #
+from ch03.llm import Message
 from ch03.prompt import Prompt
 
 #
 
 
 async def classify_intent(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   prompt: Prompt,
 ) -> list[str]:
   """

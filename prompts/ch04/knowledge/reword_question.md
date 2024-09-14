@@ -1,10 +1,7 @@
 ---
 model: gpt-4o-mini
 temperature: 0.7
-max_tokens: 256
-top_p: 0.95
-frequency_penalty: 0.0
-response_format_type: text
+max_tokens: 8192
 ---
 
 # Reword a Question

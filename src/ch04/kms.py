@@ -1,7 +1,7 @@
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -39,9 +39,6 @@ class Content:
   metadata: dict[str, Any]
 
 
-#
-
-
 @dataclass
 class IngestionReport:
   """
@@ -77,6 +74,7 @@ class IngestionReport:
   metadata: dict[str, Any] = field(
     default_factory=dict
   )
+  errors: list[str] = field(default_factory=list)
 
   def summary(self) -> str:
     """Generate a summary of the ingestion report."""
@@ -89,6 +87,30 @@ class IngestionReport:
         Attributes Extracted: {len(self.attributes)}
         QA Pairs Generated: {len(self.qa_pairs)}
         Errors Encountered: {len(self.errors)}
+        """
+
+
+@dataclass
+class RetrievedContent:
+  id: str
+  type: str
+  content: str
+  metadata: dict[str, Any]
+  question: str
+  answer: str
+  similarity: float
+  related_content: list[str]
+
+  def __str__(self) -> str:
+    return f"""
+        ID: {self.id}
+        Type: {self.type}
+        Content: {self.content}
+        Metadata: {self.metadata}
+        Question: {self.question}
+        Answer: {self.answer}
+        Similarity: {self.similarity}
+        Related Content: {self.related_content}
         """
 
 
@@ -120,11 +142,15 @@ class KnowledgeManagementSystem:
     """
     Ingest new content into the KMS and produce an ingestion report.
 
-    Args:
-        content (Content): The content to ingest.
+    Parameters
+    ----------
+    content : Content
+        The content to ingest.
 
-    Returns:
-        IngestionReport: A report detailing the ingestion process and its results.
+    Returns
+    -------
+    IngestionReport
+        A report detailing the ingestion process and its results.
     """
 
     # Store content in file system
@@ -227,7 +253,7 @@ class KnowledgeManagementSystem:
         },
       )
       logger.info(
-        f"Added question-answer pair to content with ID {content.id}"
+        f"Added question-answer pair to content with ID {content.id}: {qa_pair}"
       )
 
     return report
@@ -236,18 +262,27 @@ class KnowledgeManagementSystem:
     self,
     query: str,
     n_results: int = 5,
-    metadata_filter: Optional[dict[str, Any]] = None,
+    metadata_filter: dict[str, Any] | None = None,
     num_rewordings: int = 3,
-  ) -> list[dict[str, Any]]:
+  ) -> list[RetrievedContent]:
     """
     Retrieve content based on a query.
 
-    Args:
-        query (str): The query string.
-        n_results (int): Number of results to return.
+    Parameters
+    ----------
+    query : str
+        The query string.
+    n_results : int, optional
+        Number of results to return.
+    metadata_filter : dict[str, Any] | None, optional
+        Filter for metadata.
+    num_rewordings : int, optional
+        Number of query rewordings to generate.
 
-    Returns:
-        list[dict[str, Any]]: List of retrieved content items.
+    Returns
+    -------
+    list[RetrievedContent]
+        List of retrieved content items.
     """
     print(f"Query: {query}")
     if not query:
@@ -262,7 +297,8 @@ class KnowledgeManagementSystem:
     )
 
     # Fetch corresponding nodes from knowledge graph
-    results = []
+    # and create RetrievedContent objects
+    retrieved_content: list[RetrievedContent] = []
     for qa_result in qa_results:
       source_id = qa_result["metadata"].get(
         "content_id"
@@ -270,21 +306,18 @@ class KnowledgeManagementSystem:
       if source_id:
         node = self.graph.get_node(source_id)
         if node:
-          related_nodes = (
-            self.graph.get_subgraph(
-              node.id,
-              depth=5,
-            )
+          related_nodes = self.graph.get_subgraph(
+            node_id=node.id,
+            depth=5,
           )["nodes"]
-          results.append(
-            self._format_result(
-              node,
-              qa_result,
-              related_nodes,
-            )
+          result = self._format_result(
+            node, qa_result, related_nodes
+          )
+          retrieved_content.append(
+            RetrievedContent(**result)
           )
 
-    return results
+    return retrieved_content
 
   async def update_content(
     self, content: Content
@@ -292,8 +325,10 @@ class KnowledgeManagementSystem:
     """
     Update existing content in the KMS.
 
-    Args:
-        content (Content): The updated content.
+    Parameters
+    ----------
+    content : Content
+        The updated content.
     """
     # Update file in file system
     file_path = self._store_file(content)
@@ -327,8 +362,10 @@ class KnowledgeManagementSystem:
     """
     Delete content from the KMS.
 
-    Args:
-        content_id (str): The ID of the content to delete.
+    Parameters
+    ----------
+    content_id : str
+        The ID of the content to delete.
     """
     # Remove node from knowledge graph
     node = self.graph.get_node(content_id)
@@ -354,16 +391,26 @@ class KnowledgeManagementSystem:
     source_id: str,
     target_id: str,
     relationship_type: str,
-    metadata: Optional[dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
   ) -> None:
     """
     Create a relationship between two content items.
 
-    Args:
-        source_id (str): The ID of the source content.
-        target_id (str): The ID of the target content.
-        relationship_type (str): The type of relationship.
-        metadata (Optional[dict[str, Any]]): Additional metadata for the relationship.
+    Parameters
+    ----------
+    source_id : str
+        The ID of the source content.
+    target_id : str
+        The ID of the target content.
+    relationship_type : str
+        The type of relationship.
+    metadata : dict[str, Any] | None, optional
+        Additional metadata for the relationship.
+
+    Raises
+    ------
+    ValueError
+        If either the source or target content is not found in the graph.
     """
     if not self.graph.get_node(source_id):
       raise ValueError(
@@ -374,26 +421,31 @@ class KnowledgeManagementSystem:
         f"Target content with ID {target_id} not found."
       )
     self.graph.add_or_update_edge(
-      source_id,
-      target_id,
-      relationship_type,
-      metadata or {},
+      source=source_id,
+      target=target_id,
+      type=relationship_type,
+      metadata=metadata or {},
     )
 
   def get_related_content(
     self,
     content_id: str,
-    relationship_type: Optional[str] = None,
+    relationship_type: str | None = None,
   ) -> list[Node]:
     """
     Get content related to a given content item.
 
-    Args:
-        content_id (str): The ID of the content item.
-        relationship_type (Optional[str]): Filter by relationship type.
+    Parameters
+    ----------
+    content_id : str
+        The ID of the content item.
+    relationship_type : str or None, optional
+        Filter by relationship type.
 
-    Returns:
-        list[Node]: List of related content nodes.
+    Returns
+    -------
+    list of Node
+        List of related content nodes.
     """
     return self.graph.get_neighbors(
       content_id, relationship_type

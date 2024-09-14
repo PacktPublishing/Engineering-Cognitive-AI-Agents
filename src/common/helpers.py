@@ -2,6 +2,8 @@ import json
 import re
 from typing import Any, Optional, Union
 
+from loguru import logger
+
 
 def extract_code_fence(text: str) -> Optional[str]:
   """
@@ -67,6 +69,9 @@ def get_json(json_data: Any) -> Union[list, dict]:
     try:
       json_data = json.loads(json_data)
     except json.JSONDecodeError as e:
+      logger.error(
+        f"Invalid JSON data: {e}: {json_data}"
+      )
       raise ValueError(
         f"Invalid JSON data: {e}"
       ) from e

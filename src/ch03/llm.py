@@ -14,7 +14,7 @@ import json
 import os
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from dotenv import load_dotenv
 from litellm import completion
@@ -42,6 +42,18 @@ DEFAULT_MODEL_FREQUENCY_PENALTY = float(
 )
 
 #
+
+#
+
+RoleType = Literal[
+  "system", "assistant", "user", "function"
+]
+
+
+class Message(TypedDict):
+  role: RoleType
+  content: str
+  name: str | None
 
 
 @dataclass
@@ -79,7 +91,7 @@ class LLMParams:
 
 
 async def call_llm(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   params: LLMParams = LLMParams(),
   functions: list[dict[str, Any]] | None = None,
 ) -> str | FunctionCall:
@@ -88,7 +100,7 @@ async def call_llm(
 
   Parameters
   ----------
-  messages : list[dict[str, str]]
+  messages : list[Message]
       The conversation history and current message(s).
   params : LLMParams, optional
       The parameters for the LLM call.
@@ -128,7 +140,7 @@ async def call_llm(
 
 
 async def call_llm_streaming(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   params: LLMParams = LLMParams(),
   functions: list[dict[str, Any]] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
@@ -137,7 +149,7 @@ async def call_llm_streaming(
 
   Parameters
   ----------
-  messages : list[dict[str, str]]
+  messages : list[Message]
       The conversation history and current message(s).
   params : LLMParams, optional
       The parameters for the LLM call.

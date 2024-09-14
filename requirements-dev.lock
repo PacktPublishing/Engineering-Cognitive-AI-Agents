@@ -42,7 +42,7 @@ bcrypt==4.2.0
     # via chromadb
 bidict==0.23.1
     # via python-socketio
-build==1.2.1
+build==1.2.2
     # via chromadb
 cachetools==5.5.0
     # via google-auth
@@ -92,7 +92,7 @@ executing==2.1.0
 fastapi==0.110.3
     # via chainlit
     # via chromadb
-filelock==3.15.4
+filelock==3.16.0
     # via huggingface-hub
     # via torch
     # via transformers
@@ -104,7 +104,7 @@ flatbuffers==24.3.25
 frozenlist==1.4.1
     # via aiohttp
     # via aiosignal
-fsspec==2024.6.1
+fsspec==2024.9.0
     # via huggingface-hub
     # via torch
 google-auth==2.34.0
@@ -128,7 +128,7 @@ httpx==0.27.2
     # via chromadb
     # via literalai
     # via openai
-huggingface-hub==0.24.6
+huggingface-hub==0.24.7
     # via sentence-transformers
     # via tokenizers
     # via transformers
@@ -144,7 +144,7 @@ idna==3.8
 importlib-metadata==8.4.0
     # via litellm
     # via opentelemetry-api
-importlib-resources==6.4.4
+importlib-resources==6.4.5
     # via chromadb
 iniconfig==2.0.0
     # via pytest
@@ -173,7 +173,7 @@ kubernetes==30.1.0
     # via chromadb
 lazify==0.4.0
     # via chainlit
-litellm==1.44.15
+litellm==1.45.0
     # via ecaa
 literalai==0.0.607
     # via chainlit
@@ -196,7 +196,7 @@ monotonic==1.6
     # via posthog
 mpmath==1.3.0
     # via sympy
-multidict==6.0.5
+multidict==6.1.0
     # via aiohttp
     # via yarl
 mypy-extensions==1.0.0
@@ -222,7 +222,7 @@ oauthlib==3.2.2
     # via requests-oauthlib
 onnxruntime==1.19.2
     # via chromadb
-openai==1.43.0
+openai==1.45.0
     # via ecaa
     # via litellm
 opentelemetry-api==1.27.0
@@ -289,12 +289,12 @@ pexpect==4.9.0
     # via ipython
 pillow==10.4.0
     # via sentence-transformers
-platformdirs==4.2.2
+platformdirs==4.3.2
     # via jupyter-core
     # via virtualenv
 pluggy==1.5.0
     # via pytest
-posthog==3.6.3
+posthog==3.6.5
     # via chromadb
 pre-commit==3.8.0
 prompt-toolkit==3.0.47
@@ -309,19 +309,19 @@ ptyprocess==0.7.0
     # via pexpect
 pure-eval==0.2.3
     # via stack-data
-pyasn1==0.6.0
+pyasn1==0.6.1
     # via pyasn1-modules
     # via rsa
-pyasn1-modules==0.4.0
+pyasn1-modules==0.4.1
     # via google-auth
-pydantic==2.8.2
+pydantic==2.9.1
     # via chainlit
     # via chromadb
     # via fastapi
     # via litellm
     # via literalai
     # via openai
-pydantic-core==2.20.1
+pydantic-core==2.23.3
     # via pydantic
 pygments==2.18.0
     # via ipython
@@ -332,7 +332,10 @@ pypika==0.48.9
     # via chromadb
 pyproject-hooks==1.1.0
     # via build
-pytest==8.3.2
+pytest==8.3.3
+    # via pytest-asyncio
+pytest-asyncio==0.24.0
+    # via ecaa
 python-dateutil==2.9.0.post0
     # via jupyter-client
     # via kubernetes
@@ -363,7 +366,7 @@ pyzmq==26.2.0
 referencing==0.35.1
     # via jsonschema
     # via jsonschema-specifications
-regex==2024.7.24
+regex==2024.9.11
     # via tiktoken
     # via transformers
 requests==2.32.3
@@ -377,23 +380,24 @@ requests==2.32.3
     # via transformers
 requests-oauthlib==2.0.0
     # via kubernetes
-rich==13.8.0
+rich==13.8.1
     # via typer
 rpds-py==0.20.0
     # via jsonschema
     # via referencing
 rsa==4.9
     # via google-auth
-safetensors==0.4.4
+ruff==0.6.5
+safetensors==0.4.5
     # via transformers
-scikit-learn==1.5.1
+scikit-learn==1.5.2
     # via sentence-transformers
 scipy==1.14.1
     # via scikit-learn
     # via sentence-transformers
-sentence-transformers==3.0.1
+sentence-transformers==3.1.0
     # via ecaa
-setuptools==74.1.1
+setuptools==74.1.2
     # via opentelemetry-instrumentation
     # via torch
 shellingham==1.5.4
@@ -431,7 +435,7 @@ tokenizers==0.19.1
     # via transformers
 tomli==2.0.1
     # via chainlit
-torch==2.4.0
+torch==2.4.1
     # via sentence-transformers
 tornado==6.4.1
     # via ipykernel
@@ -468,7 +472,7 @@ typing-inspect==0.9.0
     # via dataclasses-json
 uptrace==1.26.0
     # via chainlit
-urllib3==2.2.2
+urllib3==2.2.3
     # via kubernetes
     # via requests
 uvicorn==0.25.0
@@ -476,7 +480,7 @@ uvicorn==0.25.0
     # via chromadb
 uvloop==0.20.0
     # via uvicorn
-virtualenv==20.26.3
+virtualenv==20.26.4
     # via pre-commit
 watchfiles==0.20.0
     # via chainlit
@@ -492,7 +496,7 @@ wrapt==1.16.0
     # via opentelemetry-instrumentation
 wsproto==1.2.0
     # via simple-websocket
-yarl==1.9.8
+yarl==1.11.1
     # via aiohttp
-zipp==3.20.1
+zipp==3.20.2
     # via importlib-metadata
