@@ -119,7 +119,7 @@ huggingface-hub==0.24.7
     # via transformers
 humanfriendly==10.0
     # via coloredlogs
-idna==3.8
+idna==3.9
     # via anyio
     # via httpx
     # via requests
@@ -146,7 +146,7 @@ kubernetes==30.1.0
     # via chromadb
 lazify==0.4.0
     # via chainlit
-litellm==1.45.0
+litellm==1.46.0
     # via ecaa
 literalai==0.0.607
     # via chainlit

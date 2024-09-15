@@ -19,7 +19,7 @@ import ast
 import json
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import chainlit as cl
 from dotenv import load_dotenv
@@ -27,6 +27,7 @@ from litellm.types.utils import FunctionCall
 
 from ch03.llm import (
   LLMParams,
+  Message,
   call_llm,
   call_llm_streaming,
 )
@@ -88,18 +89,18 @@ tools = [
 
 
 async def call_llm_and_tool(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   params: LLMParams | None = None,
   functions: list[dict[str, Any]] | None = None,
   suppress_output: bool = False,
-) -> str | dict[str, str]:
+) -> str | Message:
   """
   Call the LLM, optionally update the chat UI with streaming,
   execute a tool if selected, and return the response.
 
   Parameters
   ----------
-  messages : list[dict[str, str]]
+  messages : list[Message]
       The conversation history.
   params : LLMParams | None, optional
       The LLM parameters, by default None
@@ -110,7 +111,7 @@ async def call_llm_and_tool(
 
   Returns
   -------
-  Union[str, dict[str, str]]:
+  Union[str, Message]:
       Either the LLM response or the tool response
   """
   if params is None:
@@ -124,7 +125,7 @@ async def call_llm_and_tool(
     )
 
     ui_msg = None
-    function_msg: dict[str, str] | None = None
+    function_msg: Message | None = None
     async for chunk in response_generator:
       if chunk["type"] == "token":
         if not ui_msg:
@@ -160,7 +161,7 @@ async def call_llm_and_tool(
 @cl.step(type="tool")
 async def call_tool(
   tool_call: FunctionCall,
-) -> dict[str, str]:
+) -> Message:
   """
   Call the tool function and update the message history with the function
 
@@ -171,7 +172,7 @@ async def call_tool(
 
   Returns
   -------
-  dict[str, str]
+  Message
       The function message
   """
   function_name = tool_call.name
@@ -195,11 +196,14 @@ async def call_tool(
   current_step.output = function_response
   current_step.language = "json"
 
-  return {
-    "role": "function",
-    "name": function_name,
-    "content": function_response,
-  }
+  return cast(
+    Message,
+    {
+      "role": "function",
+      "name": function_name,
+      "content": function_response,
+    },
+  )
 
 
 @cl.on_chat_start
@@ -209,10 +213,13 @@ async def start_chat() -> None:
   history
   """
   history = [
-    {
-      "role": "system",
-      "content": WINSTON_PROMPT.template,
-    }
+    cast(
+      Message,
+      {
+        "role": "system",
+        "content": WINSTON_PROMPT.template,
+      },
+    )
   ]
   cl.user_session.set("history", history)
 
@@ -227,13 +234,16 @@ async def start_chat() -> None:
 
   greeting_messsages = history.copy()
   greeting_messsages.append(
-    {
-      "role": "user",
-      "content": GREETING_PROMPT.render(
-        user_name=USER_NAME,
-        time_of_day=time_of_day,
-      ),
-    }
+    cast(
+      Message,
+      {
+        "role": "user",
+        "content": GREETING_PROMPT.render(
+          user_name=USER_NAME,
+          time_of_day=time_of_day,
+        ),
+      },
+    )
   )
 
   greeting_response = await call_llm_and_tool(
@@ -242,10 +252,13 @@ async def start_chat() -> None:
   )
   assert isinstance(greeting_response, str)
   history.append(
-    {
-      "role": "assistant",
-      "content": greeting_response,
-    }
+    cast(
+      Message,
+      {
+        "role": "assistant",
+        "content": greeting_response,
+      },
+    )
   )
   cl.user_session.set("history", history)
 
@@ -265,12 +278,18 @@ async def handle_message(message: cl.Message) -> None:
   -------
   None
   """
-  history: list[dict[str, str]] = cl.user_session.get(
+  history: list[Message] = cl.user_session.get(
     "history"
   )  # type: ignore
   assert isinstance(history, list)
   history.append(
-    {"role": "user", "content": message.content}
+    cast(
+      Message,
+      {
+        "role": "user",
+        "content": message.content,
+      },
+    )
   )
 
   # Call the LLM and execute a tool if selected
@@ -295,8 +314,11 @@ async def handle_message(message: cl.Message) -> None:
     )
 
   history.append(
-    {
-      "role": "assistant",
-      "content": str(response),
-    }
+    cast(
+      Message,
+      {
+        "role": "assistant",
+        "content": str(response),
+      },
+    )
   )

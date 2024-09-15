@@ -13,7 +13,7 @@ from ch03.prompt import Prompt, RoleType, load_prompt
 
 a = Optional[int]
 
-load_dotenv()
+_ = load_dotenv()
 
 APPLY_GRADIENT_PROMPT = load_prompt(
   "optimization/apply_gradient"

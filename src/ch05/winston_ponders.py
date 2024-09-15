@@ -50,6 +50,7 @@ prompt templates are available before running the application.
 import ast
 import json
 import os
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
@@ -73,20 +74,24 @@ from ch05.conversational_memory import (
   ConversationalMemory,
   ConversationMessage,
 )
+from ch05.whiteboard import Whiteboard
 
 #
 
-load_dotenv()
+_ = load_dotenv()
 
 USER_NAME = os.getenv("USER_NAME", "User")
 DB_DIR = os.getenv("DB_DIR", "db")
 QA_COLLECTION_NAME = os.getenv(
   "QA_COLLECTION_NAME", "qa_index"
 )
+MEMORY_DB_PATH = os.path.join(DB_DIR, "memory.db")
 
 #
 
-WINSTON_PROMPT = load_prompt("ch03/persona/winston")
+WINSTON_PROMPT = load_prompt(
+  "ch05/persona/winston_whiteboard"
+)
 GREETING_PROMPT = load_prompt("ch03/persona/greeting")
 FUNCTION_CALL_RESPONSE_PROMPT = load_prompt(
   "ch03/internal/function_call_response"
@@ -123,7 +128,11 @@ kms = KnowledgeManagementSystem(
   qa_collection_name=QA_COLLECTION_NAME,
 )
 cm = ConversationalMemory(
-  kms, os.path.join(DB_DIR, "conversations.db")
+  kms=kms,
+  db_path=MEMORY_DB_PATH,
+)
+wb = Whiteboard(
+  db_path=MEMORY_DB_PATH,
 )
 
 #
@@ -148,7 +157,7 @@ def get_current_weather(
 
 async def call_llm_and_tool(
   messages: list[Message],
-  params: LLMParams = LLMParams(),
+  params: LLMParams | None = None,
   functions: Optional[list[dict[str, Any]]] = None,
   suppress_output: bool = False,
 ) -> str | Message:
@@ -172,7 +181,10 @@ async def call_llm_and_tool(
   str | Message:
       Either the LLM response or the tool response
   """
-  if not suppress_output:
+  if params is None:
+    params = LLMParams()
+
+  if not suppress_output and not functions:
     msg = cl.Message(content="")
     await msg.send()
 
@@ -264,6 +276,7 @@ async def start_chat() -> None:
   cl.user_session.set(
     "conversation_id", conversation_id
   )
+  initial_state = wb.get_state(conversation_id)
 
   current_time = datetime.now()
   time_of_day = (
@@ -278,7 +291,9 @@ async def start_chat() -> None:
     Message,
     {
       "role": "system",
-      "content": WINSTON_PROMPT.template,
+      "content": WINSTON_PROMPT.render(
+        whiteboard=initial_state,
+      ),
     },
   )
   await cm.add_message(
@@ -376,6 +391,41 @@ async def handle_message(message: cl.Message) -> None:
     prompt=MULTI_INTENT_PROMPT,
   )
 
+  # Update the whiteboard with the new context
+  context = {"intents": intents}
+  updated_whiteboard = await wb.update_whiteboard(
+    conversation_id=conversation_id,
+    messages=history,
+    context=context,
+  )
+
+  # Update the system message with the new whiteboard state
+  updated_system_message = cast(
+    Message,
+    {
+      "role": "system",
+      "content": WINSTON_PROMPT.render(
+        whiteboard=updated_whiteboard,
+      ),
+    },
+  )
+
+  # Update the history with the new system message
+  history = [updated_system_message] + history[1:]
+
+  system_message = cm.get_system_message(
+    conversation_id
+  )
+  if system_message:
+    system_message["content"] = updated_system_message[
+      "content"
+    ]
+    await cm.update_message(
+      conversation_id=conversation_id,
+      message=system_message,
+      bypass_ingestion=True,
+    )
+
   intent_handlers = {
     "weather": handle_weather_intent,
     "task": handle_task_intent,
@@ -396,7 +446,7 @@ async def handle_message(message: cl.Message) -> None:
     )
     all_responses.extend(intent_messages)
 
-  if len(intents) > 1:
+  if len(all_responses) > 1:
     final_prompt = (
       MULTI_INTENT_SYNTHESIS_PROMPT.render(
         previous_responses="\n".join(
@@ -410,43 +460,29 @@ async def handle_message(message: cl.Message) -> None:
     )
     final_message = cast(
       Message,
-      {
-        "role": "user",
-        "content": final_prompt,
-      },
+      {"role": "user", "content": final_prompt},
     )
-
     final_response = await call_llm_and_tool(
       messages=history + [final_message],
       params=MULTI_INTENT_SYNTHESIS_PROMPT.params,
     )
     assert isinstance(final_response, str)
-    final_assistant_message = cast(
-      ConversationMessage,
-      {
-        "id": uuid4(),
-        "conversation_id": conversation_id,
-        "role": "assistant",
-        "content": final_response,
-      },
-    )
-    await cm.add_message(
-      conversation_id=conversation_id,
-      message=final_assistant_message,
-    )
   else:
-    for response in all_responses:
-      await cm.add_message(
-        conversation_id,
-        cast(
-          ConversationMessage,
-          {
-            "id": uuid4(),
-            "conversation_id": conversation_id,
-            **response,
-          },
-        ),
-      )
+    final_response = all_responses[0]["content"]
+
+  final_assistant_message = cast(
+    ConversationMessage,
+    {
+      "id": uuid4(),
+      "conversation_id": conversation_id,
+      "role": "assistant",
+      "content": final_response,
+    },
+  )
+  await cm.add_message(
+    conversation_id=conversation_id,
+    message=final_assistant_message,
+  )
 
 
 async def handle_intent(
@@ -510,7 +546,7 @@ async def handle_intent(
       suppress_output=suppress_output,
     )
 
-  messages.append(
+  return [
     cast(
       Message,
       {
@@ -518,8 +554,7 @@ async def handle_intent(
         "content": str(response),
       },
     )
-  )
-  return messages
+  ]
 
 
 async def handle_weather_intent(

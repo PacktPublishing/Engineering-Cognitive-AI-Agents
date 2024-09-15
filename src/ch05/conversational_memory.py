@@ -37,6 +37,7 @@ interaction with the KMS and for long-running operations like summarization.
 """
 
 import json
+import os
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -64,7 +65,7 @@ MAX_MESSAGE_HISTORY = int(
 )
 
 SUMMARIZE_CONVERSATION_PROMPT = load_prompt(
-  "ch05/conversation/summarize"
+  "ch05/memory/summarize_conversation"
 )
 
 
@@ -143,9 +144,6 @@ class ConversationalMemory:
     message: ConversationMessage,
     bypass_ingestion: bool = False,
   ) -> IngestionReport | None:
-    logger.error(
-      f"Message.content: {message["content"]}"
-    )
     if (
       conversation_id not in self.active_conversations
     ):
@@ -411,3 +409,91 @@ class ConversationalMemory:
 
     # Remove the conversation from active conversations
     del self.active_conversations[conversation_id]
+
+  def get_system_message(
+    self, conversation_id: UUID
+  ) -> ConversationMessage | None:
+    with self.conn:
+      result = self.conn.execute(
+        "SELECT * FROM messages WHERE conversation_id = ? AND role = 'system' ORDER BY timestamp ASC LIMIT 1",
+        (str(conversation_id),),
+      ).fetchone()
+
+    if result:
+      return self._row_to_message(result)
+    return None
+
+  async def update_message(
+    self,
+    conversation_id: UUID,
+    message: ConversationMessage,
+    bypass_ingestion: bool = False,
+  ) -> IngestionReport | None:
+    if (
+      conversation_id not in self.active_conversations
+    ):
+      raise ValueError(
+        f"Conversation {conversation_id} not found"
+      )
+
+    timestamp = (
+      message["timestamp"].isoformat()
+      if "timestamp" in message
+      else datetime.now().isoformat()
+    )
+    metadata_json = (
+      json.dumps(message["metadata"])
+      if "metadata" in message
+      else None
+    )
+
+    # Update the message in SQLite
+    with self.conn:
+      self.conn.execute(
+        "UPDATE messages SET role = ?, content = ?, metadata = ?, timestamp = ? WHERE id = ? AND conversation_id = ?",
+        (
+          message["role"],
+          message["content"],
+          metadata_json,
+          timestamp,
+          str(message["id"]),
+          str(conversation_id),
+        ),
+      )
+
+    # Update the message in the active conversation
+    for i, msg in enumerate(
+      self.active_conversations[
+        conversation_id
+      ].messages
+    ):
+      if msg["id"] == message["id"]:
+        self.active_conversations[
+          conversation_id
+        ].messages[i] = message
+        break
+
+    if bypass_ingestion:
+      return None
+
+    # Update the message in KMS
+    metadata_dict = cast(
+      dict[str, Any],
+      message["metadata"]
+      if "metadata" in message
+      else {},
+    )
+    content = Content(
+      id=str(message["id"]),
+      type="message",
+      content=message["content"],
+      metadata={
+        "conversation_id": str(
+          message["conversation_id"]
+        ),
+        "role": message["role"],
+        "timestamp": timestamp,
+        **metadata_dict,
+      },
+    )
+    return await self.kms.update_content(content)

@@ -22,7 +22,7 @@ import ast
 import json
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import chainlit as cl
 from dotenv import load_dotenv
@@ -31,6 +31,7 @@ from litellm.types.utils import FunctionCall
 from ch03.intent_classifiers import classify_intent
 from ch03.llm import (
   LLMParams,
+  Message,
   call_llm,
   call_llm_streaming,
 )
@@ -87,18 +88,18 @@ def get_current_weather(
 
 
 async def call_llm_and_tool(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   params: LLMParams | None = None,
   functions: list[dict[str, Any]] | None = None,
   suppress_output: bool = False,
-) -> str | dict[str, str]:
+) -> str | Message:
   """
   Call the LLM, optionally update the chat UI with streaming,
   execute a tool if selected, and return the response.
 
   Parameters
   ----------
-  messages : list[dict[str, str]]
+  messages : list[Message]
       The conversation history.
   params : LLMParams | None, optional
       The LLM parameters, by default None
@@ -109,13 +110,13 @@ async def call_llm_and_tool(
 
   Returns
   -------
-  Union[str, dict[str, str]]:
+  Union[str, Message]:
       Either the LLM response or the tool response
   """
   if params is None:
     params = LLMParams()
 
-  if not suppress_output:
+  if not suppress_output or functions:
     response_generator = call_llm_streaming(
       messages=messages,
       params=params,
@@ -123,7 +124,7 @@ async def call_llm_and_tool(
     )
 
     ui_msg = None
-    function_msg: dict[str, str] | None = None
+    function_msg: Message | None = None
     async for chunk in response_generator:
       if chunk["type"] == "token":
         if not ui_msg:
@@ -159,7 +160,7 @@ async def call_llm_and_tool(
 @cl.step(type="tool")
 async def call_tool(
   tool_call: FunctionCall,
-) -> dict[str, str]:
+) -> Message:
   """
   Call the tool function and update the message history with the function
 
@@ -170,7 +171,7 @@ async def call_tool(
 
   Returns
   -------
-  dict[str, str]
+  Message
       The function message
   """
   function_name = tool_call.name
@@ -194,11 +195,14 @@ async def call_tool(
   current_step.output = function_response
   current_step.language = "json"
 
-  return {
-    "role": "function",
-    "name": function_name,
-    "content": function_response,
-  }
+  return cast(
+    Message,
+    {
+      "role": "function",
+      "name": function_name,
+      "content": function_response,
+    },
+  )
 
 
 @cl.on_chat_start
@@ -208,10 +212,13 @@ async def start_chat() -> None:
   history
   """
   history = [
-    {
-      "role": "system",
-      "content": WINSTON_PROMPT.template,
-    }
+    cast(
+      Message,
+      {
+        "role": "system",
+        "content": WINSTON_PROMPT.template,
+      },
+    ),
   ]
   cl.user_session.set("history", history)
 
@@ -226,13 +233,16 @@ async def start_chat() -> None:
 
   greeting_messages = history.copy()
   greeting_messages.append(
-    {
-      "role": "user",
-      "content": GREETING_PROMPT.render(
-        user_name=USER_NAME,
-        time_of_day=time_of_day,
-      ),
-    }
+    cast(
+      Message,
+      {
+        "role": "user",
+        "content": GREETING_PROMPT.render(
+          user_name=USER_NAME,
+          time_of_day=time_of_day,
+        ),
+      },
+    ),
   )
 
   greeting_response = await call_llm_and_tool(
@@ -241,10 +251,13 @@ async def start_chat() -> None:
   )
   assert isinstance(greeting_response, str)
   history.append(
-    {
-      "role": "assistant",
-      "content": greeting_response,
-    }
+    cast(
+      Message,
+      {
+        "role": "assistant",
+        "content": greeting_response,
+      },
+    ),
   )
   cl.user_session.set("history", history)
 
@@ -255,12 +268,18 @@ async def handle_message(message: cl.Message) -> None:
   Receive a message from the user, classify intent,
   and route to appropriate handler
   """
-  history: list[dict[str, str]] = cl.user_session.get(
+  history: list[Message] = cl.user_session.get(
     "history"
   )  # type: ignore
   assert isinstance(history, list)
   history.append(
-    {"role": "user", "content": message.content}
+    cast(
+      Message,
+      {
+        "role": "user",
+        "content": message.content,
+      },
+    ),
   )
 
   intent = (
@@ -285,29 +304,40 @@ async def handle_message(message: cl.Message) -> None:
 
 
 async def handle_intent(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   prompt: Prompt,
   prompt_vars: dict[str, Any] | None = None,
   functions: list[dict[str, Any]] | None = None,
   suppress_output: bool = False,
-) -> list[dict[str, str]]:
+) -> list[Message]:
   """Generalized handler for intents"""
-  user_message = messages[-1]["content"]
 
   # If no custom prompt variables are provided, use
   # the user_message
   if prompt_vars is None:
+    user_message = messages[-1]["content"]
     prompt_vars = {"user_message": user_message}
 
   # Render the prompt with the provided variables
   response_prompt = prompt.render(**prompt_vars)
-  new_messages = [
-    {"role": "user", "content": response_prompt}
+
+  # Generate a new list of messages, dropping the last
+  # (actual) user message since it's already been
+  # incorporated into the prompt and add the prompt
+  # into the list
+  tmp_messages = messages[:-1] + [
+    cast(
+      Message,
+      {
+        "role": "user",
+        "content": response_prompt,
+      },
+    )
   ]
 
   # Call the LLM and execute a tool if selected
   response = await call_llm_and_tool(
-    messages=messages[:-1] + new_messages,
+    messages=tmp_messages,
     params=prompt.params,
     functions=functions,
     suppress_output=suppress_output,
@@ -318,12 +348,15 @@ async def handle_intent(
   if isinstance(response, dict):
     # Create some temporary messages to provide
     # context to the LLM
-    tmp_messages = new_messages + [
+    tmp_messages = tmp_messages + [
       response,
-      {
-        "role": "user",
-        "content": FUNCTION_CALL_RESPONSE_PROMPT.template,
-      },
+      cast(
+        Message,
+        {
+          "role": "user",
+          "content": FUNCTION_CALL_RESPONSE_PROMPT.template,
+        },
+      ),
     ]
     response = await call_llm_and_tool(
       messages=messages[:-1] + tmp_messages,
@@ -331,19 +364,21 @@ async def handle_intent(
       suppress_output=suppress_output,
     )
 
-  new_messages.append(
-    {
-      "role": "assistant",
-      "content": str(response),
-    }
-  )
-  return new_messages
+  return [
+    cast(
+      Message,
+      {
+        "role": "assistant",
+        "content": str(response),
+      },
+    )
+  ]
 
 
 async def handle_weather_intent(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   suppress_output: bool = False,
-) -> list[dict[str, str]]:
+) -> list[Message]:
   """Handle the weather intent"""
   functions = [
     {
@@ -378,9 +413,9 @@ async def handle_weather_intent(
 
 
 async def handle_task_intent(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   suppress_output: bool = False,
-) -> list[dict[str, str]]:
+) -> list[Message]:
   """Handle the task intent"""
   return await handle_intent(
     messages,
@@ -390,9 +425,9 @@ async def handle_task_intent(
 
 
 async def handle_help_intent(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   suppress_output: bool = False,
-) -> list[dict[str, str]]:
+) -> list[Message]:
   """Handle the help intent"""
   return await handle_intent(
     messages,
@@ -402,9 +437,9 @@ async def handle_help_intent(
 
 
 async def handle_general_intent(
-  messages: list[dict[str, str]],
+  messages: list[Message],
   suppress_output: bool = False,
-) -> list[dict[str, str]]:
+) -> list[Message]:
   """Handle the general intent"""
   return await handle_intent(
     messages,

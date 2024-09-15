@@ -164,7 +164,7 @@ class KnowledgeManagementSystem:
       metadata=content.metadata,
     )
     logger.info(
-      f"Ingested content with ID {content.id} and type {content.type}"
+      f"Ingested content with ID {content.id} and type {content.type}: {content.content[:100]}"
     )
 
     report = IngestionReport(

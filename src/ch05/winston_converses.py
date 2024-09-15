@@ -1,85 +1,63 @@
 """
-Winston: A Knowledge-Driven Conversational AI Assistant
+Winston: A Knowledge-Driven Conversational AI Assistant with Memory
 
-This module implements Winston, an advanced AI
-assistant with knowledge management capabilities. It
-extends the basic conversational AI framework with the
-following key features:
+This module implements Winston, an advanced AI assistant with knowledge
+management and conversational memory capabilities. Key features include:
 
-1. Knowledge Management System (KMS): Utilizes a
-   sophisticated KMS for storing, retrieving, and
-   reasoning over information.
+1. Conversational Memory: Utilizes a ConversationalMemory system to
+   maintain context across interactions, storing and retrieving
+   conversation history.
 
-2. Intent Classification and Routing: Classifies user
-   intents and routes them to specialized handlers for
-   more accurate and context-aware responses.
+2. Persistent Conversations: Each chat session is associated with a
+   unique conversation ID, allowing for continuity between user
+   interactions.
 
-3. Multi-Intent Processing: Capable of understanding
-   and addressing multiple intents within a single user
-   query.
+3. Message History Management: Stores and retrieves messages for each
+   conversation, including system, user, and assistant messages.
 
-4. Retrieval-Augmented Generation (RAG): Combines
-   retrieved knowledge with language generation for
+4. Context-Aware Responses: Leverages conversation history to generate
+   more contextually relevant and coherent responses.
+
+5. Integration with Knowledge Management: Combines conversational
+   memory with the existing Knowledge Management System (KMS) for
    more informed and contextually relevant responses.
 
-5. Dynamic Knowledge Updates: Allows for the ingestion
-   and integration of new information through the
-   'remember' intent.
+6. Multi-Turn Interactions: Supports complex, multi-turn conversations
+   by maintaining conversation state and history.
 
-6. Chainlit Integration: Provides a seamless,
-   interactive chat experience with features like
-   streaming responses and step-by-step reasoning
-   display.
-
-7. Customizable Prompts: Uses a variety of customizable
-   prompts for different functionalities, allowing for
-   easy modification of Winston's behavior and
-   responses.
-
-8. Environment Configuration: Utilizes environment
-   variables for flexible configuration.
-
-This implementation represents a significant
-advancement in AI assistants, combining robust
-knowledge management with sophisticated natural
-language processing to create a more capable and
-context-aware conversational agent.
+This implementation represents a significant advancement in AI
+assistants, combining robust knowledge management with sophisticated
+conversational memory to create a more capable and context-aware
+conversational agent.
 
 Key Components:
-- KnowledgeManagementSystem: Handles storage,
-retrieval, and reasoning over information.
-- Intent handlers: Specialized functions for different
-types of user intents.
-- Prompt templates: Customizable templates for
-consistent and context-aware messaging.
-- Chainlit integration: For interactive and
-user-friendly chat interface.
+- ConversationalMemory: Manages storage and retrieval of conversation
+  history.
+- KnowledgeManagementSystem: Handles storage, retrieval, and reasoning
+  over information.
+- Intent handlers: Specialized functions for different types of user
+  intents, now utilizing conversation history.
 
 Usage:
-This module is designed to be run as a Chainlit
-application, providing an interactive chat interface
-for users to engage with Winston.
+This module is designed to be run as a Chainlit application, providing
+an interactive chat interface for users to engage with Winston,
+maintaining conversation context across multiple interactions.
 
-Note: Ensure all required environment variables are set
-and necessary prompt templates are available before
-running the application.
+Note: Ensure all required environment variables are set and necessary
+prompt templates are available before running the application.
 """
 
 import ast
 import json
 import os
-import uuid
-from dataclasses import asdict
 from datetime import datetime
-from typing import (
-  Any,
-  Optional,
-  cast,
-)
+from typing import Any, cast
+from uuid import UUID, uuid4
 
 import chainlit as cl
 from dotenv import load_dotenv
 from litellm.types.utils import FunctionCall
+from loguru import logger
 
 from ch03.intent_classifiers import classify_intent
 from ch03.llm import (
@@ -89,7 +67,12 @@ from ch03.llm import (
   call_llm_streaming,
 )
 from ch03.prompt import Prompt, load_prompt
-from ch04.kms import Content, KnowledgeManagementSystem
+from ch04.kms import KnowledgeManagementSystem
+from ch05.conversational_memory import (
+  Content,
+  ConversationalMemory,
+  ConversationMessage,
+)
 
 #
 
@@ -100,6 +83,7 @@ DB_DIR = os.getenv("DB_DIR", "db")
 QA_COLLECTION_NAME = os.getenv(
   "QA_COLLECTION_NAME", "qa_index"
 )
+MEMORY_DB_PATH = os.path.join(DB_DIR, "memory.db")
 
 #
 
@@ -139,6 +123,10 @@ kms = KnowledgeManagementSystem(
   db_dir=DB_DIR,
   qa_collection_name=QA_COLLECTION_NAME,
 )
+cm = ConversationalMemory(
+  kms=kms,
+  db_path=MEMORY_DB_PATH,
+)
 
 #
 
@@ -162,10 +150,10 @@ def get_current_weather(
 
 async def call_llm_and_tool(
   messages: list[Message],
-  params: LLMParams = LLMParams(),
-  functions: Optional[list[dict[str, Any]]] = None,
+  params: LLMParams | None = None,
+  functions: list[dict[str, Any]] | None = None,
   suppress_output: bool = False,
-) -> Message | str:
+) -> str | Message:
   """
   Call the LLM, optionally update the chat UI with streaming,
   execute a tool if selected, and return the response.
@@ -186,6 +174,9 @@ async def call_llm_and_tool(
   str | Message:
       Either the LLM response or the tool response
   """
+  if params is None:
+    params = LLMParams()
+
   if not suppress_output and not functions:
     msg = cl.Message(content="")
     await msg.send()
@@ -261,29 +252,23 @@ async def call_tool(
   current_step.output = function_response
   current_step.language = "json"
 
-  return Message(
-    role="function",
-    name=function_name,
-    content=function_response,
+  return cast(
+    Message,
+    {
+      "role": "function",
+      "name": function_name,
+      "content": function_response,
+    },
   )
 
 
 @cl.on_chat_start
 async def start_chat() -> None:
-  """
-  Start the chat session by setting the initial
-  history
-  """
-  history: list[Message] = [
-    cast(
-      Message,
-      {
-        "role": "system",
-        "content": WINSTON_PROMPT.template,
-      },
-    ),
-  ]
-  cl.user_session.set("history", history)
+  """Start the chat session by creating a new conversation and setting the initial history"""
+  conversation_id = cm.create_conversation()
+  cl.user_session.set(
+    "conversation_id", conversation_id
+  )
 
   current_time = datetime.now()
   time_of_day = (
@@ -294,35 +279,59 @@ async def start_chat() -> None:
     else "evening"
   )
 
-  greeting_messages = history.copy()
-  greeting_messages.append(
+  system_message = cast(
+    Message,
+    {
+      "role": "system",
+      "content": WINSTON_PROMPT.template,
+    },
+  )
+  await cm.add_message(
+    conversation_id,
     cast(
-      Message,
+      ConversationMessage,
       {
-        "role": "user",
-        "content": GREETING_PROMPT.render(
-          user_name=USER_NAME,
-          time_of_day=time_of_day,
-        ),
+        "id": uuid4(),
+        "conversation_id": conversation_id,
+        **system_message,
       },
     ),
+    bypass_ingestion=True,
   )
+
+  greeting_message = cast(
+    Message,
+    {
+      "role": "user",
+      "content": GREETING_PROMPT.render(
+        user_name=USER_NAME, time_of_day=time_of_day
+      ),
+    },
+  )
+
+  greeting_messages: list[Message] = [
+    system_message,
+    greeting_message,
+  ]
 
   greeting_response = await call_llm_and_tool(
     messages=greeting_messages,
     params=GREETING_PROMPT.params,
   )
   assert isinstance(greeting_response, str)
-  history.append(
-    cast(
-      Message,
-      {
-        "role": "assistant",
-        "content": greeting_response,
-      },
-    )
+
+  assistant_message = cast(
+    ConversationMessage,
+    {
+      "id": uuid4(),
+      "conversation_id": conversation_id,
+      "role": "assistant",
+      "content": greeting_response,
+    },
   )
-  cl.user_session.set("history", history)
+  await cm.add_message(
+    conversation_id, assistant_message
+  )
 
 
 @cl.on_message
@@ -331,19 +340,41 @@ async def handle_message(message: cl.Message) -> None:
   Receive a message from the user, classify intent,
   and route to appropriate handler
   """
-  history: list[Message] = cl.user_session.get(
-    "history"
+  conversation_id = cl.user_session.get(
+    "conversation_id"
   )
-  assert isinstance(history, list)
-  history.append(
+  assert isinstance(conversation_id, UUID)
+
+  # Add user message to conversational memory
+  user_message = cast(
+    ConversationMessage,
+    {
+      "id": uuid4(),
+      "conversation_id": conversation_id,
+      "role": "user",
+      "content": message.content,
+    },
+  )
+  await cm.add_message(
+    conversation_id=conversation_id,
+    message=user_message,
+  )
+
+  # Retrieve conversation history
+  history = [
     cast(
       Message,
       {
-        "role": "user",
-        "content": message.content,
+        "role": cm["role"],
+        "content": cm["content"],
       },
     )
-  )
+    for cm in cm.get_last_n_messages(
+      conversation_id=conversation_id,
+    )
+  ]
+  for i, m in enumerate(history):
+    logger.info(f"Message ({i}): {m}")
 
   intents = await classify_intent(
     messages=history,
@@ -370,7 +401,18 @@ async def handle_message(message: cl.Message) -> None:
     )
     all_responses.extend(intent_messages)
 
-  if len(intents) > 1:
+  all_responses: list[Message] = []
+  for intent in intents:
+    handler = intent_handlers.get(
+      intent, handle_general_intent
+    )
+    intent_messages = await handler(
+      messages=history,
+      suppress_output=len(intents) > 1,
+    )
+    all_responses.extend(intent_messages)
+
+  if len(all_responses) > 1:
     final_prompt = (
       MULTI_INTENT_SYNTHESIS_PROMPT.render(
         previous_responses="\n".join(
@@ -382,32 +424,31 @@ async def handle_message(message: cl.Message) -> None:
         )
       )
     )
-    final_messages = history + [
-      cast(
-        Message,
-        {
-          "role": "user",
-          "content": final_prompt,
-        },
-      )
-    ]
-
+    final_message = cast(
+      Message,
+      {"role": "user", "content": final_prompt},
+    )
     final_response = await call_llm_and_tool(
-      messages=final_messages,
+      messages=history + [final_message],
       params=MULTI_INTENT_SYNTHESIS_PROMPT.params,
     )
     assert isinstance(final_response, str)
-    history.append(
-      cast(
-        Message,
-        {
-          "role": "assistant",
-          "content": final_response,
-        },
-      )
-    )
   else:
-    history.extend(all_responses)
+    final_response = all_responses[0]["content"]
+
+  final_assistant_message = cast(
+    ConversationMessage,
+    {
+      "id": uuid4(),
+      "conversation_id": conversation_id,
+      "role": "assistant",
+      "content": final_response,
+    },
+  )
+  await cm.add_message(
+    conversation_id=conversation_id,
+    message=final_assistant_message,
+  )
 
 
 async def handle_intent(
@@ -571,7 +612,7 @@ async def handle_remember_intent(
   assert isinstance(extraction_response, str)
   extracted_info = json.loads(extraction_response)
   content = Content(
-    id=str(uuid.uuid4()),
+    id=str(uuid4()),
     type="memory",
     content=extracted_info["content"],
     metadata=extracted_info.get("metadata", {}),
