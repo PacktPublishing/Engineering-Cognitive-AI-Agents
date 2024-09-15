@@ -398,6 +398,10 @@ async def handle_message(message: cl.Message) -> None:
     messages=history,
     context=context,
   )
+  # Create a Chainlit Step to display the ingestion report
+  async with cl.Step(name="Short-Term Memory") as step:
+    step.output = updated_whiteboard
+    step.language = "text"
 
   # Update the system message with the new whiteboard state
   updated_system_message = cast(
