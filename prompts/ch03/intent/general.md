@@ -1,7 +1,7 @@
 ---
 model: gpt-4o
 temperature: 0.7
-max_tokens: 2048
+max_tokens: 8192
 ---
 
 I respond to the user's message.

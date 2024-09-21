@@ -63,8 +63,13 @@ running the application.
 """
 
 import ast
+import asyncio
 import json
 import os
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -75,6 +80,7 @@ from litellm.types.utils import (
   ChatCompletionMessageToolCall,
   Function,
 )
+from loguru import logger
 
 from ch03.intent_classifiers import classify_intent
 from ch03.llm import (
@@ -92,6 +98,10 @@ from ch05.conversational_memory import (
 )
 
 #
+
+# Configure loguru
+logger.remove()  # Remove default handler
+logger.add(sys.stdout, level="TRACE")
 
 _ = load_dotenv()
 
@@ -144,6 +154,41 @@ cm = ConversationalMemory(
   kms=kms,
   db_path=MEMORY_DB_PATH,
 )
+#
+
+# Create a ThreadPoolExecutor
+executor = ThreadPoolExecutor(max_workers=5)
+
+
+def add_message_background(
+  conversation_id: UUID, message: ConversationMessage
+) -> None:
+  thread_name = threading.current_thread().name
+  logger.info(
+    f"Background task started in thread: {thread_name}"
+  )
+  try:
+    # Get a thread-specific database connection
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(
+      cm.add_message(
+        conversation_id=conversation_id,
+        message=message,
+      )
+    )
+    loop.close()
+    logger.info(
+      f"Message added successfully in thread: {thread_name}"
+    )
+  except Exception as e:
+    logger.exception(f"Error in background task: {e}")
+  finally:
+    logger.info(
+      f"Background task completed in thread: {thread_name}"
+    )
+
 
 #
 
@@ -355,8 +400,11 @@ async def start_chat() -> None:
       "content": greeting_response,
     },
   )
-  await cm.add_message(
-    conversation_id, assistant_message
+  # Submit the task to the thread pool
+  executor.submit(
+    add_message_background,
+    conversation_id,
+    assistant_message,
   )
 
 
@@ -381,9 +429,11 @@ async def handle_message(message: cl.Message) -> None:
       "content": message.content,
     },
   )
-  await cm.add_message(
-    conversation_id=conversation_id,
-    message=user_message,
+  # Submit the task to the thread pool
+  executor.submit(
+    add_message_background,
+    conversation_id,
+    user_message,
   )
 
   # Retrieve conversation history
@@ -399,12 +449,21 @@ async def handle_message(message: cl.Message) -> None:
       conversation_id=conversation_id,
     )
   ]
+  # Add the current user message to the history
+  history.append(
+    Message(
+      role=user_message["role"],
+      content=user_message["content"],
+    )
+  )
 
+  # Classify user intent
   intents = await classify_intent(
     messages=history,
     prompt=MULTI_INTENT_PROMPT,
   )
 
+  # Handle the user intent
   intent_handlers = {
     "weather": handle_weather_intent,
     "task": handle_task_intent,
@@ -458,9 +517,11 @@ async def handle_message(message: cl.Message) -> None:
       "content": final_response,
     },
   )
-  await cm.add_message(
-    conversation_id=conversation_id,
-    message=final_assistant_message,
+  # Submit the task to the thread pool
+  executor.submit(
+    add_message_background,
+    conversation_id,
+    final_assistant_message,
   )
 
 

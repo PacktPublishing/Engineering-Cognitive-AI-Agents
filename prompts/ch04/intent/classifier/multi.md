@@ -1,7 +1,7 @@
 ---
 model: gpt-4o-mini
 temperature: 0.3
-max_tokens: 150
+max_tokens: 8192
 response_format:
   type: json_schema
   json_schema:

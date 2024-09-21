@@ -1,7 +1,7 @@
 ---
 model: gpt-4o-mini
 temperature: 0.7
-max_tokens: 150
+max_tokens: 8192
 ---
 
 I answer the user's question based on retrieved information and a given confidence level.

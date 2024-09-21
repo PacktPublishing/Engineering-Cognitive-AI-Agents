@@ -1,7 +1,7 @@
 ---
 model: gpt-4o-mini
 temperature: 0.7
-max_tokens: 250
+max_tokens: 8192
 ---
 
 I am a meteorologist.

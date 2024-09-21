@@ -213,6 +213,9 @@ def add_message_background(
     )
 
 
+#
+
+
 # Example dummy function for weather
 def get_current_weather(
   location: str,
@@ -438,19 +441,6 @@ async def handle_message(message: cl.Message) -> None:
   and route to appropriate handler
   """
 
-  # Create the TaskList
-  task_list = cl.TaskList()
-  task_list.status = "Running..."
-
-  # Prepare conversation history
-  history_task = cl.Task(
-    title="Preparing conversation history",
-    status=cl.TaskStatus.RUNNING,
-  )
-  await task_list.add_task(history_task)
-  history_task.forId = message.id
-  await task_list.send()
-
   conversation_id = cl.user_session.get(
     "conversation_id"
   )
@@ -494,54 +484,16 @@ async def handle_message(message: cl.Message) -> None:
     )
   )
 
-  history_task.status = cl.TaskStatus.DONE
-  await task_list.send()
-
   # Classify user intent
-  classify_intent_task = cl.Task(
-    title="Classifying user intent",
-    status=cl.TaskStatus.RUNNING,
-  )
-  await task_list.add_task(classify_intent_task)
-  classify_intent_task.forId = message.id
-  await task_list.send()
-
   intents = await classify_intent(
     messages=history,
     prompt=MULTI_INTENT_PROMPT,
   )
 
-  classify_intent_task.status = cl.TaskStatus.DONE
-  await task_list.send()
-
   # Retrieve relevant episodic memories
-  relevant_episodic_memories_task = cl.Task(
-    title="Retrieving relevant episodic memories",
-    status=cl.TaskStatus.RUNNING,
-  )
-  await task_list.add_task(
-    relevant_episodic_memories_task
-  )
-  relevant_episodic_memories_task.forId = message.id
-  await task_list.send()
-
   relevant_episode_content = await em.query_episodes(
     message.content, n_results=3
   )
-
-  relevant_episodic_memories_task.status = (
-    cl.TaskStatus.DONE
-  )
-  await task_list.send()
-
-  # Update short-term memory
-  update_whiteboard_task = cl.Task(
-    title="Updating short-term memory",
-    status=cl.TaskStatus.RUNNING,
-  )
-  await task_list.add_task(update_whiteboard_task)
-  update_whiteboard_task.forId = message.id
-  await task_list.send()
 
   # Update the context with relevant episodic memories
   context = {
@@ -561,20 +513,7 @@ async def handle_message(message: cl.Message) -> None:
     step.output = updated_whiteboard
     step.language = "text"
 
-  update_whiteboard_task.status = cl.TaskStatus.DONE
-  await task_list.send()
-
   # Process episodic memory
-  process_episodic_memory_task = cl.Task(
-    title="Processing episodic memory",
-    status=cl.TaskStatus.RUNNING,
-  )
-  await task_list.add_task(
-    process_episodic_memory_task
-  )
-  process_episodic_memory_task.forId = message.id
-  await task_list.send()
-
   episode_report = await em.process_episode(
     user_message=user_message,
     history=history,
@@ -599,19 +538,6 @@ async def handle_message(message: cl.Message) -> None:
       ) as step:
         step.output = str(episode_report.reflection)
         step.language = "text"
-
-      async with cl.Step(
-        name="Episode Ingestion Report"
-      ) as step:
-        step.output = str(
-          episode_report.ingestion_report
-        )
-        step.language = "json"
-
-  process_episodic_memory_task.status = (
-    cl.TaskStatus.DONE
-  )
-  await task_list.send()
 
   # Update the system message with the new whiteboard state
   updated_system_message = cast(
@@ -641,14 +567,6 @@ async def handle_message(message: cl.Message) -> None:
     )
 
   # Handle the user intent
-  handle_intent_task = cl.Task(
-    title="Handling user intent",
-    status=cl.TaskStatus.RUNNING,
-  )
-  await task_list.add_task(handle_intent_task)
-  handle_intent_task.forId = message.id
-  await task_list.send()
-
   intent_handlers = {
     "weather": handle_weather_intent,
     "task": handle_task_intent,
@@ -708,12 +626,6 @@ async def handle_message(message: cl.Message) -> None:
     conversation_id,
     final_assistant_message,
   )
-
-  handle_intent_task.status = cl.TaskStatus.DONE
-  await task_list.send()
-
-  task_list.status = "Done"
-  await task_list.send()
 
 
 async def handle_intent(
