@@ -9,7 +9,7 @@ from jinja2 import Template
 from loguru import logger
 
 from ch03.llm import (
-  FunctionCall,
+  ChatCompletionMessageToolCall,
   LLMParams,
   Message,
   RoleType,
@@ -94,7 +94,7 @@ class Prompt:
       + f", max_tokens={self.params.max_tokens}"
       + f", top_p={self.params.top_p}"
       + f", frequency_penalty={self.params.frequency_penalty}"
-      + f", response_format_type={self.params.response_format_type}"
+      + f", response_format={self.params.response_format}"
       + ")"
     )
 
@@ -141,9 +141,9 @@ class Prompt:
         params.frequency_penalty,
       )
     )
-    params.response_format_type = metadata.get(
-      "response_format_type",
-      params.response_format_type,
+    params.response_format = metadata.get(
+      "response_format",
+      params.response_format,
     )
 
     return cls(
@@ -180,12 +180,12 @@ class Prompt:
     self,
     history: list[Message] | None = None,
     user_input: str | None = None,
-    functions: list[dict[str, Any]] | None = None,
+    tools: list[dict[str, Any]] | None = None,
     **template_vars: Any,
-  ) -> str | FunctionCall:
+  ) -> str | ChatCompletionMessageToolCall:
     """
     Call the LLM with the given prompt input,
-    incorporating conversation history and functions.
+    incorporating conversation history and tools.
     """
     messages = self._prepare_messages(
       template_vars, history, user_input
@@ -193,14 +193,14 @@ class Prompt:
     return await call_llm(
       messages=messages,
       params=self.params,
-      functions=functions,
+      tools=tools,
     )
 
   async def call_llm_streaming(
     self,
     history: list[Message] | None = None,
     user_input: str | None = None,
-    functions: list[dict[str, Any]] | None = None,
+    tools: list[dict[str, Any]] | None = None,
     **template_vars: Any,
   ) -> AsyncGenerator[dict[str, Any], None]:
     """
@@ -212,7 +212,7 @@ class Prompt:
     async for chunk in call_llm_streaming(
       messages=messages,
       params=self.params,
-      functions=functions,
+      tools=tools,
     ):
       yield chunk
 

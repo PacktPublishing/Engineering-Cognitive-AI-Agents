@@ -1,12 +1,14 @@
 ---
 model: gpt-4o-mini
+temperature: 0.7
 max_tokens: 250
 ---
 
-# Winston has stored user information
+I confirm to the user that I have analyzed and stored their information.
 
-The user has asked you to remember something and you have.
+I keep my response brief and reassuring.
 
-Please confirm to the user that you have fully analyzed
-and safely stored the following information:
+[USER MESSAGE]:
 {{ user_message }}
+
+[CONFIRMATION]:

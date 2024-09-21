@@ -1,3 +1,5 @@
+# src/ch05/conversational_memory.py
+
 """
 Conversational Memory Module
 
@@ -39,9 +41,11 @@ interaction with the KMS and for long-running operations like summarization.
 import json
 import os
 import sqlite3
+import threading
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+from sqlite3 import Connection, Row, connect
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -94,13 +98,15 @@ class ConversationalMemory:
   ):
     self.kms = kms
     self.db_path = db_path
-    self.conn = sqlite3.connect(db_path)
-    self.conn.row_factory = sqlite3.Row
-    self._create_tables()
-    self.active_conversations: dict[
-      UUID, Conversation
-    ] = {}
     self.max_message_history = max_message_history
+    self.local = threading.local()
+
+  @property
+  def conn(self) -> Connection:
+    if not hasattr(self.local, "conn"):
+      self.local.conn = connect(self.db_path)
+      self.local.conn.row_factory = Row
+    return self.local.conn
 
   def _create_tables(self) -> None:
     with self.conn:
@@ -125,17 +131,12 @@ class ConversationalMemory:
   def create_conversation(self) -> UUID:
     conversation_id = uuid4()
     with self.conn:
-      self.conn.execute(
+      cursor = self.conn.cursor()
+      cursor.execute(
         "INSERT INTO conversations (id, summary) VALUES (?, ?)",
         (str(conversation_id), ""),
       )
-    self.active_conversations[conversation_id] = (
-      Conversation(
-        id=conversation_id,
-        summary="",
-        messages=[],
-      )
-    )
+      self.conn.commit()
     return conversation_id
 
   async def add_message(
@@ -144,27 +145,19 @@ class ConversationalMemory:
     message: ConversationMessage,
     bypass_ingestion: bool = False,
   ) -> IngestionReport | None:
-    if (
-      conversation_id not in self.active_conversations
-    ):
-      raise ValueError(
-        f"Conversation {conversation_id} not found"
-      )
-
-    conversation = self.active_conversations[
-      conversation_id
-    ]
-    conversation.messages.append(message)
-
     # Update summary if necessary
     #
     # We have to account for the system message and any
     # previous summary that may have been added.
-    has_previous_summary = bool(conversation.summary)
+    has_previous_summary = bool(
+      self.get_conversation_summary(conversation_id)
+    )
     message_offset = 1 + (
       1 if has_previous_summary else 0
     )
-    num_messages = len(conversation.messages)
+    num_messages = len(
+      self.get_last_n_messages(conversation_id)
+    )
     # Don't include the system message and any previous
     # summary in the message count
     num_messages -= message_offset
@@ -172,12 +165,15 @@ class ConversationalMemory:
       logger.info(
         f"Updating summary for conversation {conversation_id}"
       )
-      conversation.summary = await self.summarize_messages(
+      conversation_summary = await self.summarize_messages(
         conversation_id=conversation_id,
-        messages=conversation.messages[
-          message_offset:
-        ],  # skip the system message and any previous summary, if any
-        previous_summary=conversation.summary,
+        messages=self.get_last_n_messages(
+          conversation_id,
+          n=self.max_message_history,
+        ),
+        previous_summary=self.get_conversation_summary(
+          conversation_id
+        ),
       )
 
     # Store the message in SQLite
@@ -375,40 +371,31 @@ class ConversationalMemory:
     self,
     conversation_id: UUID,
   ) -> str:
-    if (
-      conversation_id not in self.active_conversations
-    ):
-      raise ValueError(
-        f"Conversation {conversation_id} not found"
-      )
+    with self.conn:
+      result = self.conn.execute(
+        "SELECT summary FROM conversations WHERE id = ?",
+        (str(conversation_id),),
+      ).fetchone()
 
-    return self.active_conversations[
-      conversation_id
-    ].summary
+    if result:
+      return result[0]
+    return ""
 
   async def close_conversation(
     self,
     conversation_id: UUID,
   ) -> None:
-    if (
-      conversation_id not in self.active_conversations
-    ):
-      raise ValueError(
-        f"Conversation {conversation_id} not found"
-      )
-
     # Perform any necessary cleanup or final processing
-    conversation = self.active_conversations[
-      conversation_id
-    ]
     await self.summarize_messages(
       conversation_id=conversation_id,
-      messages=conversation.messages,
-      previous_summary=conversation.summary,
+      messages=self.get_last_n_messages(
+        conversation_id,
+        n=None,
+      ),
+      previous_summary=self.get_conversation_summary(
+        conversation_id
+      ),
     )
-
-    # Remove the conversation from active conversations
-    del self.active_conversations[conversation_id]
 
   def get_system_message(
     self, conversation_id: UUID
@@ -429,13 +416,6 @@ class ConversationalMemory:
     message: ConversationMessage,
     bypass_ingestion: bool = False,
   ) -> IngestionReport | None:
-    if (
-      conversation_id not in self.active_conversations
-    ):
-      raise ValueError(
-        f"Conversation {conversation_id} not found"
-      )
-
     timestamp = (
       message["timestamp"].isoformat()
       if "timestamp" in message
@@ -461,18 +441,6 @@ class ConversationalMemory:
         ),
       )
 
-    # Update the message in the active conversation
-    for i, msg in enumerate(
-      self.active_conversations[
-        conversation_id
-      ].messages
-    ):
-      if msg["id"] == message["id"]:
-        self.active_conversations[
-          conversation_id
-        ].messages[i] = message
-        break
-
     if bypass_ingestion:
       return None
 
@@ -497,3 +465,33 @@ class ConversationalMemory:
       },
     )
     return await self.kms.update_content(content)
+
+  def get_messages_since(
+    self,
+    conversation_id: UUID,
+    since_message_id: UUID,
+  ) -> list[ConversationMessage]:
+    messages: list[ConversationMessage] = []
+
+    with self.conn:
+      # Get the timestamp of the 'since' message
+      since_timestamp = self.conn.execute(
+        "SELECT timestamp FROM messages WHERE id = ? AND conversation_id = ?",
+        (str(since_message_id), str(conversation_id)),
+      ).fetchone()
+
+      if not since_timestamp:
+        raise ValueError(
+          f"Message {since_message_id} not found in conversation {conversation_id}"
+        )
+
+      # Get all messages after the 'since' message, including it
+      results = self.conn.execute(
+        "SELECT * FROM messages WHERE conversation_id = ? AND timestamp >= ? ORDER BY timestamp ASC",
+        (str(conversation_id), since_timestamp[0]),
+      ).fetchall()
+
+    for row in results:
+      messages.append(self._row_to_message(row))
+
+    return messages

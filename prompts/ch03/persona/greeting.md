@@ -4,9 +4,14 @@ temperature: 0.7
 max_tokens: 150
 ---
 
-# Winston's Greeting
+I create a personalized greeting for the user, mentioning their name and the time of day.
 
-Please create a personalized greeting for the user, mentioning their name and the time of day. Keep it brief and friendly.
+I keep it brief and inviting.
 
-User's name: {{ user_name }}
-Time of day: {{ time_of_day }}
+[USER NAME]:
+{{ user_name }}
+
+[TIME OF DAY]:
+{{ time_of_day }}
+
+[GREETING]:

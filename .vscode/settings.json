@@ -1,3 +1,4 @@
 {
-  "editor.rulers": [55]
+  "editor.rulers": [55],
+  "editor.tabSize": 2
 }

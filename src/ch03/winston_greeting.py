@@ -1,18 +1,50 @@
 """
 ChainLit-based Conversational AI Assistant
 
-This module implements a conversational AI assistant using ChainLit and
-custom LLM interaction functions. It features:
-- Initialization of chat sessions with a personalized greeting
-- Streaming responses from the LLM to the user interface
-- Maintenance of conversation history
-- Integration with custom prompts for system and greeting messages
-- Asynchronous handling of user messages and LLM responses
+This module implements an advanced conversational AI
+assistant using ChainLit and custom LLM interaction
+functions. Key enhancements and differences include:
 
-Winston, uses environment variables for configuration and provides a
-seamless, interactive chat experience with context-aware greetings and
-responses. It utilizes a custom LLM module for language model
-interactions and prompt templates for consistent messaging.
+1. Modularization: Utilizes separate modules for LLM
+   interactions and prompt management.
+
+2. Environment Variables: Uses environment variables
+   for configuration, improving flexibility.
+
+3. Personalization: Implements a context-aware greeting
+   system based on time of day.
+
+4. Improved Prompt Handling: Employs custom prompt
+   templates for system and greeting messages.
+
+5. Enhanced Function Calling: Implements a more robust
+   system for function calls and tool usage.
+
+6. Asynchronous Design: Fully embraces asynchronous
+   programming for better performance.
+
+7. Type Hinting: Incorporates extensive type hinting
+   for improved code clarity and maintainability.
+
+8. Logging: Integrates logging for better debugging and
+   monitoring.
+
+9. Streaming Responses: Implements streaming responses
+   from the LLM to the user interface.
+
+10. Error Handling: Includes more comprehensive error
+    checking and handling.
+
+The assistant, Winston, provides a seamless,
+interactive chat experience with context-aware
+greetings and responses. It leverages custom LLM
+modules for language model interactions and uses prompt
+templates for consistent messaging.
+
+This version represents a significant evolution from
+the earlier, simpler implementation, offering more
+features, better structure, and improved
+maintainability.
 """
 
 import ast
@@ -23,7 +55,10 @@ from typing import Any, cast
 
 import chainlit as cl
 from dotenv import load_dotenv
-from litellm.types.utils import FunctionCall
+from litellm.types.utils import (
+  ChatCompletionMessageToolCall,
+  Function,
+)
 
 from ch03.llm import (
   LLMParams,
@@ -65,24 +100,24 @@ def get_current_weather(
 
 tools = [
   {
-    "name": "get_current_weather",
-    "description": "Get the current weather in a given location",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "location": {
-          "type": "string",
-          "description": "The city and state, e.g. San Francisco, CA",
+    "type": "function",  # Add this line
+    "function": {  # Wrap the existing content in a 'function' key
+      "name": "get_current_weather",
+      "description": "Get the current weather in a given location",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "The city and state, e.g. San Francisco, CA",
+          },
+          "unit": {
+            "type": "string",
+            "enum": ["celsius", "fahrenheit"],
+          },
         },
-        "unit": {
-          "type": "string",
-          "enum": [
-            "celsius",
-            "fahrenheit",
-          ],
-        },
+        "required": ["location"],
       },
-      "required": ["location"],
     },
   }
 ]
@@ -91,7 +126,7 @@ tools = [
 async def call_llm_and_tool(
   messages: list[Message],
   params: LLMParams | None = None,
-  functions: list[dict[str, Any]] | None = None,
+  tools: list[dict[str, Any]] | None = None,
   suppress_output: bool = False,
 ) -> str | Message:
   """
@@ -104,8 +139,8 @@ async def call_llm_and_tool(
       The conversation history.
   params : LLMParams | None, optional
       The LLM parameters, by default None
-  functions : list[dict[str, Any]] | None, optional
-      The functions to call, by default None
+  tools : list[dict[str, Any]] | None, optional
+      The tools to call, by default None
   suppress_output : bool, optional
       Whether to suppress streaming output, by default False
 
@@ -121,7 +156,7 @@ async def call_llm_and_tool(
     response_generator = call_llm_streaming(
       messages=messages,
       params=params,
-      functions=functions,
+      tools=tools,
     )
 
     ui_msg = None
@@ -132,11 +167,14 @@ async def call_llm_and_tool(
           ui_msg = cl.Message(content="")
           _ = await ui_msg.send()
         await ui_msg.stream_token(chunk["data"])
-      elif (
-        chunk["type"] == "function_call" and functions
-      ):
-        tool_call = chunk["data"]
-        function_msg = await call_tool(tool_call)
+      elif chunk["type"] == "tool_call" and tools:
+        tool_call = cast(
+          ChatCompletionMessageToolCall,
+          chunk["data"],
+        )
+        function_msg = await call_tool(
+          tool_call.function
+        )
 
     if not function_msg and ui_msg:
       await ui_msg.update()
@@ -147,12 +185,14 @@ async def call_llm_and_tool(
   response = await call_llm(
     messages=messages,
     params=params,
-    functions=functions,
+    tools=tools,
   )
 
   function_result = (
     await call_tool(response)
-    if isinstance(response, FunctionCall)
+    if isinstance(
+      response, ChatCompletionMessageToolCall
+    )
     else None
   )
   return function_result or str(response)
@@ -160,7 +200,7 @@ async def call_llm_and_tool(
 
 @cl.step(type="tool")
 async def call_tool(
-  tool_call: FunctionCall,
+  function: Function,
 ) -> Message:
   """
   Call the tool function and update the message history with the function
@@ -175,11 +215,11 @@ async def call_tool(
   Message
       The function message
   """
-  function_name = tool_call.name
+  function_name = function.name
   if not function_name:
     raise ValueError("Function name is required")
 
-  arguments = ast.literal_eval(tool_call.arguments)
+  arguments = ast.literal_eval(function.arguments)
 
   current_step = cl.context.current_step
   if not current_step:
@@ -295,7 +335,7 @@ async def handle_message(message: cl.Message) -> None:
   # Call the LLM and execute a tool if selected
   response = await call_llm_and_tool(
     messages=history,
-    functions=tools,
+    tools=tools,
   )
 
   # If a tool call was executed, update the chat

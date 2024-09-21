@@ -1,50 +1,75 @@
+# winston_ponders.py
 """
-Winston: A Knowledge-Driven Conversational AI Assistant with Memory
+Winston: A Knowledge-Driven Conversational AI Assistant
+with Advanced Memory and Context Management
 
-This module implements Winston, an advanced AI assistant with knowledge
-management and conversational memory capabilities. Key features include:
+This module implements Winston, a sophisticated AI
+assistant that combines robust knowledge management
+with advanced conversational memory and
+context-awareness capabilities. Key features include:
 
-1. Conversational Memory: Utilizes a ConversationalMemory system to
-   maintain context across interactions, storing and retrieving
+1. Conversational Memory: Utilizes a
+   ConversationalMemory system to maintain context
+   across interactions, storing and retrieving
    conversation history.
 
-2. Persistent Conversations: Each chat session is associated with a
-   unique conversation ID, allowing for continuity between user
-   interactions.
+2. Persistent Conversations: Each chat session is
+   associated with a unique conversation ID, allowing
+   for continuity between user interactions.
 
-3. Message History Management: Stores and retrieves messages for each
-   conversation, including system, user, and assistant messages.
+3. Message History Management: Stores and retrieves
+   messages for each conversation, including system,
+   user, and assistant messages.
 
-4. Context-Aware Responses: Leverages conversation history to generate
+4. Context-Aware Responses: Leverages conversation
+   history and a dynamic Whiteboard system to generate
    more contextually relevant and coherent responses.
 
-5. Integration with Knowledge Management: Combines conversational
-   memory with the existing Knowledge Management System (KMS) for
-   more informed and contextually relevant responses.
+5. Knowledge Management Integration: Combines
+   conversational memory with a Knowledge Management
+   System (KMS) for more informed and contextually
+   relevant responses.
 
-6. Multi-Turn Interactions: Supports complex, multi-turn conversations
-   by maintaining conversation state and history.
+6. Multi-Turn Interactions: Supports complex,
+   multi-turn conversations by maintaining conversation
+   state and history.
 
-This implementation represents a significant advancement in AI
-assistants, combining robust knowledge management with sophisticated
-conversational memory to create a more capable and context-aware
-conversational agent.
+7. Dynamic Context Updating: Employs a Whiteboard
+   system to continuously update and maintain the
+   conversation's context, including recognized intents
+   and other relevant information.
+
+8. Multi-Intent Classification: Capable of identifying
+   and handling multiple intents within a single user
+   message, providing comprehensive responses.
 
 Key Components:
-- ConversationalMemory: Manages storage and retrieval of conversation
-  history.
-- KnowledgeManagementSystem: Handles storage, retrieval, and reasoning
-  over information.
-- Intent handlers: Specialized functions for different types of user
-  intents, now utilizing conversation history.
+
+- ConversationalMemory: Manages storage and retrieval
+  of conversation history.
+
+- KnowledgeManagementSystem: Handles storage,
+  retrieval, and reasoning over information.
+
+- Whiteboard: Maintains and updates the dynamic context
+  of the conversation.
+
+- Intent Handlers: Specialized functions for different
+  types of user intents, utilizing conversation history
+  and context.
 
 Usage:
-This module is designed to be run as a Chainlit application, providing
-an interactive chat interface for users to engage with Winston,
-maintaining conversation context across multiple interactions.
+This module is designed to be run as a Chainlit
+application, providing an interactive chat interface
+for users to engage with Winston. It maintains
+conversation context across multiple interactions and
+leverages both short-term (conversation history) and
+long-term (knowledge base) memory to provide informed
+and contextually appropriate responses.
 
-Note: Ensure all required environment variables are set and necessary
-prompt templates are available before running the application.
+Note: Ensure all required environment variables are set
+and necessary prompt templates are available before
+running the application.
 """
 
 import ast
@@ -52,13 +77,15 @@ import json
 import os
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import chainlit as cl
 from dotenv import load_dotenv
-from litellm.types.utils import FunctionCall
-from loguru import logger
+from litellm.types.utils import (
+  ChatCompletionMessageToolCall,
+  Function,
+)
 
 from ch03.intent_classifiers import classify_intent
 from ch03.llm import (
@@ -158,7 +185,7 @@ def get_current_weather(
 async def call_llm_and_tool(
   messages: list[Message],
   params: LLMParams | None = None,
-  functions: Optional[list[dict[str, Any]]] = None,
+  tools: list[dict[str, Any]] | None = None,
   suppress_output: bool = False,
 ) -> str | Message:
   """
@@ -169,53 +196,62 @@ async def call_llm_and_tool(
   ----------
   messages : list[Message]
       The conversation history.
-  params : LLMParams, optional
-      The LLM parameters, by default LLMParams()
-  functions : Optional[list[dict[str, Any]]], optional
-      The functions to call, by default None
+  params : LLMParams | None, optional
+      The LLM parameters, by default None
+  tools : list[dict[str, Any]] | None, optional
+      The tools to call, by default None
   suppress_output : bool, optional
       Whether to suppress streaming output, by default False
 
   Returns
   -------
-  str | Message:
+  Union[str, Message]:
       Either the LLM response or the tool response
   """
   if params is None:
     params = LLMParams()
 
-  if not suppress_output and not functions:
-    msg = cl.Message(content="")
-    await msg.send()
-
+  if not suppress_output:
     response_generator = call_llm_streaming(
       messages=messages,
       params=params,
-      functions=functions,
+      tools=tools,
     )
 
+    ui_msg = None
     function_msg: Message | None = None
     async for chunk in response_generator:
       if chunk["type"] == "token":
-        await msg.stream_token(chunk["data"])
-      elif (
-        chunk["type"] == "function_call" and functions
-      ):
-        tool_call = chunk["data"]
-        function_msg = await call_tool(tool_call)
+        if not ui_msg:
+          ui_msg = cl.Message(content="")
+          _ = await ui_msg.send()
+        await ui_msg.stream_token(chunk["data"])
+      elif chunk["type"] == "tool_call" and tools:
+        tool_call = cast(
+          ChatCompletionMessageToolCall,
+          chunk["data"],
+        )
+        function_msg = await call_tool(
+          tool_call.function
+        )
 
-    await msg.update()
-    return function_msg or msg.content
+    if not function_msg and ui_msg:
+      await ui_msg.update()
+    return function_msg or (
+      ui_msg.content if ui_msg else ""
+    )
 
   response = await call_llm(
     messages=messages,
     params=params,
-    functions=functions,
+    tools=tools,
   )
 
   function_result = (
-    await call_tool(response)
-    if isinstance(response, FunctionCall)
+    await call_tool(response.function)
+    if isinstance(
+      response, ChatCompletionMessageToolCall
+    )
     else None
   )
   return function_result or str(response)
@@ -223,7 +259,7 @@ async def call_llm_and_tool(
 
 @cl.step(type="tool")
 async def call_tool(
-  tool_call: FunctionCall,
+  function: Function,
 ) -> Message:
   """
   Call the tool function and update the message history with the function
@@ -238,11 +274,11 @@ async def call_tool(
   Message
       The function message
   """
-  function_name = tool_call.name
+  function_name = function.name
   if not function_name:
     raise ValueError("Function name is required")
 
-  arguments = ast.literal_eval(tool_call.arguments)
+  arguments = ast.literal_eval(function.arguments)
 
   current_step = cl.context.current_step
   if not current_step:
@@ -383,8 +419,6 @@ async def handle_message(message: cl.Message) -> None:
       conversation_id=conversation_id,
     )
   ]
-  for i, m in enumerate(history):
-    logger.info(f"Message ({i}): {m}")
 
   intents = await classify_intent(
     messages=history,
@@ -455,7 +489,7 @@ async def handle_message(message: cl.Message) -> None:
       MULTI_INTENT_SYNTHESIS_PROMPT.render(
         previous_responses="\n".join(
           [
-            m["content"]
+            str(m["content"])
             for m in all_responses
             if m["role"] == "assistant"
           ]
@@ -493,7 +527,7 @@ async def handle_intent(
   messages: list[Message],
   prompt: Prompt,
   prompt_vars: dict[str, Any] | None = None,
-  functions: list[dict[str, Any]] | None = None,
+  tools: list[dict[str, Any]] | None = None,
   suppress_output: bool = False,
 ) -> list[Message]:
   """Generalized handler for intents"""
@@ -525,7 +559,7 @@ async def handle_intent(
   response = await call_llm_and_tool(
     messages=tmp_messages,
     params=prompt.params,
-    functions=functions,
+    tools=tools,
     suppress_output=suppress_output,
   )
 
@@ -566,26 +600,26 @@ async def handle_weather_intent(
   suppress_output: bool = False,
 ) -> list[Message]:
   """Handle the weather intent"""
-  functions = [
+  tools = [
     {
-      "name": "get_current_weather",
-      "description": "Get the current weather in a given location",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "location": {
-            "type": "string",
-            "description": "The city and state, e.g. San Francisco, CA",
+      "type": "function",  # Add this line
+      "function": {  # Wrap the existing content in a 'function' key
+        "name": "get_current_weather",
+        "description": "Get the current weather in a given location",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "The city and state, e.g. San Francisco, CA",
+            },
+            "unit": {
+              "type": "string",
+              "enum": ["celsius", "fahrenheit"],
+            },
           },
-          "unit": {
-            "type": "string",
-            "enum": [
-              "celsius",
-              "fahrenheit",
-            ],
-          },
+          "required": ["location"],
         },
-        "required": ["location"],
       },
     }
   ]
@@ -593,7 +627,7 @@ async def handle_weather_intent(
   return await handle_intent(
     messages=messages,
     prompt=WEATHER_INTENT_PROMPT,
-    functions=functions,
+    tools=tools,
     suppress_output=suppress_output,
   )
 

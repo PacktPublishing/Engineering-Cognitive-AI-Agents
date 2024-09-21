@@ -2,9 +2,6 @@
 model: gpt-4o-mini
 temperature: 0.3
 max_tokens: 50
-top_p: 0.95
-frequency_penalty: 0
-response_format_type: text
 ---
 
 # Winston's User Intent Classifier with Few-Shot Learning

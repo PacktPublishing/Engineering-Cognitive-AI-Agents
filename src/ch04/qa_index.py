@@ -1,5 +1,6 @@
+import json
 import os
-from typing import Any, Optional, Set
+from typing import Any, Optional, Set, TypedDict
 
 import chromadb
 from chromadb.utils import embedding_functions
@@ -7,7 +8,6 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from ch03.prompt import load_prompt
-from common.helpers import get_json_list
 
 #
 
@@ -27,9 +27,14 @@ REWORDING_PROMPT = load_prompt(
 QA_PAIRS_PROMPT = load_prompt(
   "ch04/knowledge/qa_pairs"
 )
-QA_PAIRS_JSON_PROMPT = load_prompt(
-  "ch04/knowledge/qa_pairs_json"
-)
+
+#
+
+
+class QAPair(TypedDict):
+  q: str
+  a: str
+
 
 #
 
@@ -58,80 +63,18 @@ class QAIndex:
       f"QuestionAnswerKB initialized for collection '{collection_name}'."
     )
 
-  async def _parse_qa_pairs_as_json(
-    self,
-    text: str,
-  ) -> list[dict[str, str]]:
-    """
-    Parse a string of question-answer pairs as JSON.
-
-    Args:
-        text (str): The string of question-answer pairs.
-
-    Returns:
-        list[dict[str, str]]: A list of dictionaries, each containing a
-        question and its corresponding answer.
-    """
-    text = text.strip()
-    if not text:
-      return []
-
-    print(f"Parsing text: {text}")
-
-    try:
-      qa_pairs = get_json_list(text)
-      if isinstance(qa_pairs, list):
-        return qa_pairs
-    except Exception:
-      pass
-
-    retries = 0
-    previous_error = None
-
-    while retries < 3:
-      try:
-        response = str(
-          await QA_PAIRS_JSON_PROMPT.call_llm(
-            input_text=text,
-            previous_error=previous_error,
-          )
-        )
-        assert isinstance(response, str)
-        qa_pairs = get_json_list(response)
-        if not isinstance(qa_pairs, list):
-          raise ValueError(
-            "Expected a list of QA pairs, but got a different format."
-          )
-        return qa_pairs
-      except Exception as e:
-        previous_error = str(e)
-        retries += 1
-        print(f"Error: {str(e)}")
-
-    # If we've exhausted all retries, return an empty list
-    return []
-
   async def generate_qa_pairs(
     self, input_text: str
-  ) -> list[dict[str, str]]:
+  ) -> list[QAPair]:
     try:
-      response = str(
+      qa_pairs_json = str(
         await QA_PAIRS_PROMPT.call_llm(
           input_text=input_text
         )
       )
-      assert isinstance(response, str)
-      qa_pairs = get_json_list(response)
-
-      for pair in qa_pairs:
-        if (
-          not isinstance(pair, dict)
-          or "q" not in pair
-          or "a" not in pair
-        ):
-          raise ValueError(
-            "Invalid QA pair format in the response."
-          )
+      qa_pairs: list[QAPair] = json.loads(
+        qa_pairs_json
+      )["qa_pairs"]
       return qa_pairs
 
     except Exception as e:
@@ -146,14 +89,16 @@ class QAIndex:
     if num_rewordings == 0:
       return [question]
 
-    response = str(
+    rewordings_json = str(
       await REWORDING_PROMPT.call_llm(
         question=question,
         num_rewordings=num_rewordings,
       )
     )
-    assert isinstance(response, str)
-    rewordings = response.strip().split("\n")
+    assert isinstance(rewordings_json, str)
+    rewordings = json.loads(rewordings_json)[
+      "reworded_questions"
+    ]
     questions = [question] + rewordings
     questions = [q.strip() for q in questions]
     for i, q in enumerate(questions):

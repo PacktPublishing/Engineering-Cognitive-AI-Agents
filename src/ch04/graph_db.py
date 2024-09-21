@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -31,9 +32,15 @@ class Edge:
 class KnowledgeGraph:
   def __init__(self, db_file: str) -> None:
     self.db_file = db_file
-    self.conn = sqlite3.connect(db_file)
-    self.conn.row_factory = sqlite3.Row
-    self._create_tables()
+    self.local = threading.local()
+
+  @property
+  def conn(self) -> sqlite3.Connection:
+    if not hasattr(self.local, "conn"):
+      self.local.conn = sqlite3.connect(self.db_file)
+      self.local.conn.row_factory = sqlite3.Row
+      self._create_tables()
+    return self.local.conn
 
   def __str__(self) -> str:
     return f"Database(db_file='{self.db_file}')"
@@ -101,6 +108,7 @@ class KnowledgeGraph:
           importance,
         ),
       )
+      self.conn.commit()
 
   def add_or_update_edge(
     self,
@@ -350,7 +358,7 @@ class KnowledgeGraph:
     nodes = set()
     edges = set()
 
-    def traverse(current_id, current_depth):
+    def traverse(current_id: str, current_depth: int):
       if current_depth > depth:
         return
       nodes.add(current_id)

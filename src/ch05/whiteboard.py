@@ -1,3 +1,8 @@
+# src/ch05/whiteboard.py
+"""
+Short-term memory Whiteboard
+"""
+
 import os
 import sqlite3
 from collections.abc import Iterable

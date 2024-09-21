@@ -1,11 +1,12 @@
-# src/ch05/winston_converses.py
+# winston_remembers.py
 """
 Winston: A Knowledge-Driven Conversational AI Assistant
-with Memory
+with Advanced Memory and Context Management
 
-This module implements Winston, an advanced AI
-assistant with knowledge management and conversational
-memory capabilities. Key features include:
+This module implements Winston, a sophisticated AI
+assistant that combines robust knowledge management
+with advanced conversational memory and
+context-awareness capabilities. Key features include:
 
 1. Conversational Memory: Utilizes a
    ConversationalMemory system to maintain context
@@ -21,23 +22,26 @@ memory capabilities. Key features include:
    user, and assistant messages.
 
 4. Context-Aware Responses: Leverages conversation
-   history to generate more contextually relevant and
-   coherent responses.
+   history and a dynamic Whiteboard system to generate
+   more contextually relevant and coherent responses.
 
-5. Integration with Knowledge Management: Combines
-   conversational memory with the existing Knowledge
-   Management System (KMS) for more informed and
-   contextually relevant responses.
+5. Knowledge Management Integration: Combines
+   conversational memory with a Knowledge Management
+   System (KMS) for more informed and contextually
+   relevant responses.
 
 6. Multi-Turn Interactions: Supports complex,
    multi-turn conversations by maintaining conversation
    state and history.
 
-This implementation represents a significant
-advancement in AI assistants, combining robust
-knowledge management with sophisticated conversational
-memory to create a more capable and context-aware
-conversational agent.
+7. Dynamic Context Updating: Employs a Whiteboard
+   system to continuously update and maintain the
+   conversation's context, including recognized intents
+   and other relevant information.
+
+8. Multi-Intent Classification: Capable of identifying
+   and handling multiple intents within a single user
+   message, providing comprehensive responses.
 
 Key Components:
 
@@ -47,15 +51,21 @@ Key Components:
 - KnowledgeManagementSystem: Handles storage,
   retrieval, and reasoning over information.
 
-- Intent handlers: Specialized functions for different
-  types of user intents, now utilizing conversation
-  history.
+- Whiteboard: Maintains and updates the dynamic context
+  of the conversation.
+
+- Intent Handlers: Specialized functions for different
+  types of user intents, utilizing conversation history
+  and context.
 
 Usage:
 This module is designed to be run as a Chainlit
 application, providing an interactive chat interface
-for users to engage with Winston, maintaining
-conversation context across multiple interactions.
+for users to engage with Winston. It maintains
+conversation context across multiple interactions and
+leverages both short-term (conversation history) and
+long-term (knowledge base) memory to provide informed
+and contextually appropriate responses.
 
 Note: Ensure all required environment variables are set
 and necessary prompt templates are available before
@@ -63,8 +73,13 @@ running the application.
 """
 
 import ast
+import asyncio
 import json
 import os
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -75,6 +90,7 @@ from litellm.types.utils import (
   ChatCompletionMessageToolCall,
   Function,
 )
+from loguru import logger
 
 from ch03.intent_classifiers import classify_intent
 from ch03.llm import (
@@ -90,8 +106,14 @@ from ch05.conversational_memory import (
   ConversationalMemory,
   ConversationMessage,
 )
+from ch05.episodic_memory import EpisodicMemory
+from ch05.whiteboard import Whiteboard
 
 #
+
+# Configure loguru
+logger.remove()  # Remove default handler
+logger.add(sys.stdout, level="TRACE")
 
 _ = load_dotenv()
 
@@ -104,7 +126,9 @@ MEMORY_DB_PATH = os.path.join(DB_DIR, "memory.db")
 
 #
 
-WINSTON_PROMPT = load_prompt("ch03/persona/winston")
+WINSTON_PROMPT = load_prompt(
+  "ch05/persona/winston_whiteboard"
+)
 GREETING_PROMPT = load_prompt("ch03/persona/greeting")
 FUNCTION_CALL_RESPONSE_PROMPT = load_prompt(
   "ch03/internal/function_call_response"
@@ -144,8 +168,49 @@ cm = ConversationalMemory(
   kms=kms,
   db_path=MEMORY_DB_PATH,
 )
+wb = Whiteboard(
+  db_path=MEMORY_DB_PATH,
+)
+em = EpisodicMemory(
+  kms=kms,
+  cm=cm,
+  db_path=MEMORY_DB_PATH,
+)
 
 #
+
+# Create a ThreadPoolExecutor
+executor = ThreadPoolExecutor(max_workers=5)
+
+
+def add_message_background(
+  conversation_id: UUID, message: ConversationMessage
+) -> None:
+  thread_name = threading.current_thread().name
+  logger.info(
+    f"Background task started in thread: {thread_name}"
+  )
+  try:
+    # Get a thread-specific database connection
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(
+      cm.add_message(
+        conversation_id=conversation_id,
+        message=message,
+      )
+    )
+    loop.close()
+    logger.info(
+      f"Message added successfully in thread: {thread_name}"
+    )
+  except Exception as e:
+    logger.exception(f"Error in background task: {e}")
+  finally:
+    logger.info(
+      f"Background task completed in thread: {thread_name}"
+    )
 
 
 # Example dummy function for weather
@@ -295,6 +360,7 @@ async def start_chat() -> None:
   cl.user_session.set(
     "conversation_id", conversation_id
   )
+  initial_state = wb.get_state(conversation_id)
 
   current_time = datetime.now()
   time_of_day = (
@@ -309,7 +375,9 @@ async def start_chat() -> None:
     Message,
     {
       "role": "system",
-      "content": WINSTON_PROMPT.template,
+      "content": WINSTON_PROMPT.render(
+        whiteboard=initial_state,
+      ),
     },
   )
   await cm.add_message(
@@ -355,8 +423,11 @@ async def start_chat() -> None:
       "content": greeting_response,
     },
   )
-  await cm.add_message(
-    conversation_id, assistant_message
+  # Submit the task to the thread pool
+  executor.submit(
+    add_message_background,
+    conversation_id,
+    assistant_message,
   )
 
 
@@ -366,6 +437,20 @@ async def handle_message(message: cl.Message) -> None:
   Receive a message from the user, classify intent,
   and route to appropriate handler
   """
+
+  # Create the TaskList
+  task_list = cl.TaskList()
+  task_list.status = "Running..."
+
+  # Prepare conversation history
+  history_task = cl.Task(
+    title="Preparing conversation history",
+    status=cl.TaskStatus.RUNNING,
+  )
+  await task_list.add_task(history_task)
+  history_task.forId = message.id
+  await task_list.send()
+
   conversation_id = cl.user_session.get(
     "conversation_id"
   )
@@ -381,9 +466,11 @@ async def handle_message(message: cl.Message) -> None:
       "content": message.content,
     },
   )
-  await cm.add_message(
-    conversation_id=conversation_id,
-    message=user_message,
+  # Submit the task to the thread pool
+  executor.submit(
+    add_message_background,
+    conversation_id,
+    user_message,
   )
 
   # Retrieve conversation history
@@ -399,11 +486,168 @@ async def handle_message(message: cl.Message) -> None:
       conversation_id=conversation_id,
     )
   ]
+  # Add the current user message to the history
+  history.append(
+    Message(
+      role=user_message["role"],
+      content=user_message["content"],
+    )
+  )
+
+  history_task.status = cl.TaskStatus.DONE
+  await task_list.send()
+
+  # Classify user intent
+  classify_intent_task = cl.Task(
+    title="Classifying user intent",
+    status=cl.TaskStatus.RUNNING,
+  )
+  await task_list.add_task(classify_intent_task)
+  classify_intent_task.forId = message.id
+  await task_list.send()
 
   intents = await classify_intent(
     messages=history,
     prompt=MULTI_INTENT_PROMPT,
   )
+
+  classify_intent_task.status = cl.TaskStatus.DONE
+  await task_list.send()
+
+  # Retrieve relevant episodic memories
+  relevant_episodic_memories_task = cl.Task(
+    title="Retrieving relevant episodic memories",
+    status=cl.TaskStatus.RUNNING,
+  )
+  await task_list.add_task(
+    relevant_episodic_memories_task
+  )
+  relevant_episodic_memories_task.forId = message.id
+  await task_list.send()
+
+  relevant_episode_content = await em.query_episodes(
+    message.content, n_results=3
+  )
+
+  relevant_episodic_memories_task.status = (
+    cl.TaskStatus.DONE
+  )
+  await task_list.send()
+
+  # Update short-term memory
+  update_whiteboard_task = cl.Task(
+    title="Updating short-term memory",
+    status=cl.TaskStatus.RUNNING,
+  )
+  await task_list.add_task(update_whiteboard_task)
+  update_whiteboard_task.forId = message.id
+  await task_list.send()
+
+  # Update the context with relevant episodic memories
+  context = {
+    "intents": intents,
+    "relevant_episodes": [
+      content.content
+      for content in relevant_episode_content
+    ],
+  }
+  updated_whiteboard = await wb.update_whiteboard(
+    conversation_id=conversation_id,
+    messages=history,
+    context=context,
+  )
+  # Create a Chainlit Step to display the ingestion report
+  async with cl.Step(name="Short-Term Memory") as step:
+    step.output = updated_whiteboard
+    step.language = "text"
+
+  update_whiteboard_task.status = cl.TaskStatus.DONE
+  await task_list.send()
+
+  # Process episodic memory
+  process_episodic_memory_task = cl.Task(
+    title="Processing episodic memory",
+    status=cl.TaskStatus.RUNNING,
+  )
+  await task_list.add_task(
+    process_episodic_memory_task
+  )
+  process_episodic_memory_task.forId = message.id
+  await task_list.send()
+
+  episode_report = await em.process_episode(
+    user_message=user_message,
+    history=history,
+    whiteboard=updated_whiteboard,
+  )
+  # Create a Chainlit Step to display the ingestion report
+  async with cl.Step(
+    name="Episode Boundary Detection"
+  ) as step:
+    episode_boundary_detection = (
+      episode_report.boundary_detection
+    )
+    step.output = dict(episode_boundary_detection)
+    step.language = "json"
+
+    if (
+      episode_boundary_detection["is_new_episode"]
+      and episode_report.reflection
+    ):
+      async with cl.Step(
+        name="Episode Reflection"
+      ) as step:
+        step.output = str(episode_report.reflection)
+        step.language = "text"
+
+      async with cl.Step(
+        name="Episode Ingestion Report"
+      ) as step:
+        step.output = str(
+          episode_report.ingestion_report
+        )
+        step.language = "json"
+
+  process_episodic_memory_task.status = (
+    cl.TaskStatus.DONE
+  )
+  await task_list.send()
+
+  # Update the system message with the new whiteboard state
+  updated_system_message = cast(
+    Message,
+    {
+      "role": "system",
+      "content": WINSTON_PROMPT.render(
+        whiteboard=updated_whiteboard,
+      ),
+    },
+  )
+
+  # Update the history with the new system message
+  history = [updated_system_message] + history[1:]
+
+  system_message = cm.get_system_message(
+    conversation_id
+  )
+  if system_message:
+    system_message["content"] = updated_system_message[
+      "content"
+    ]
+    await cm.update_message(
+      conversation_id=conversation_id,
+      message=system_message,
+      bypass_ingestion=True,
+    )
+
+  # Handle the user intent
+  handle_intent_task = cl.Task(
+    title="Handling user intent",
+    status=cl.TaskStatus.RUNNING,
+  )
+  await task_list.add_task(handle_intent_task)
+  handle_intent_task.forId = message.id
+  await task_list.send()
 
   intent_handlers = {
     "weather": handle_weather_intent,
@@ -458,10 +702,18 @@ async def handle_message(message: cl.Message) -> None:
       "content": final_response,
     },
   )
-  await cm.add_message(
-    conversation_id=conversation_id,
-    message=final_assistant_message,
+  # Submit the task to the thread pool
+  executor.submit(
+    add_message_background,
+    conversation_id,
+    final_assistant_message,
   )
+
+  handle_intent_task.status = cl.TaskStatus.DONE
+  await task_list.send()
+
+  task_list.status = "Done"
+  await task_list.send()
 
 
 async def handle_intent(

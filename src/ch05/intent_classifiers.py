@@ -6,9 +6,8 @@ import json
 
 from loguru import logger
 
-#
-from ch03.llm import Message
-from ch03.prompt import Prompt
+from ch05.llm import Message
+from ch05.prompt import Prompt
 
 #
 
@@ -21,15 +20,17 @@ async def classify_intent(
   Classify the user's intent(s) using prompt
   engineering techniques.
   """
-  response = str(
-    await prompt.call_llm(
-      history=messages,
-    )
+  response = await prompt.call_llm(
+    history=messages,
   )
-  if isinstance(prompt.params.response_format, dict):
+  assert isinstance(response, str)
+  if (
+    prompt.params.response_format["type"]
+    == "json_object"
+  ):
     try:
-      intent_obj = json.loads(response)
-      return intent_obj.get("intents", [])
+      json_response = json.loads(response)
+      return json_response.get("intents", [])
     except json.JSONDecodeError:
       logger.error(
         "Failed to parse JSON response from LLM"

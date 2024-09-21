@@ -1,3 +1,8 @@
+# src/ch04/kms.py
+"""
+Knowledge Management System
+"""
+
 import json
 import os
 from dataclasses import dataclass, field
@@ -9,10 +14,6 @@ from loguru import logger
 from ch03.prompt import load_prompt
 from ch04.graph_db import KnowledgeGraph, Node
 from ch04.qa_index import QAIndex
-from common.helpers import (
-  get_json_list,
-  get_json_object,
-)
 
 #
 
@@ -181,7 +182,7 @@ class KnowledgeManagementSystem:
       )
     )
     assert isinstance(entities_json, str)
-    entities = get_json_list(entities_json)
+    entities = json.loads(entities_json)["entities"]
     report.entities = entities
     logger.info(
       f"Extracted {len(entities)} entities from content with ID {content.id}"
@@ -195,7 +196,9 @@ class KnowledgeManagementSystem:
       )
     )
     assert isinstance(relationships_json, str)
-    relationships = get_json_list(relationships_json)
+    relationships = json.loads(relationships_json)[
+      "relationships"
+    ]
     report.relationships = relationships
     logger.info(
       f"Extracted {len(relationships)} relationships from content with ID {content.id}"
@@ -209,11 +212,20 @@ class KnowledgeManagementSystem:
       )
     )
     assert isinstance(attributes_json, str)
-    attributes = get_json_object(attributes_json)
+    attributes = json.loads(attributes_json)[
+      "attributes"
+    ]
     report.attributes = attributes
     logger.info(
       f"Extracted attributes for {len(attributes)} entities from content with ID {content.id}"
     )
+    entity_attributes: dict[str, dict[str, str]] = {
+      entity["entity"]: {
+        prop["key"]: prop["value"]
+        for prop in entity["properties"]
+      }
+      for entity in attributes
+    }
 
     # Add entities to knowledge graph
     for entity in entities:
@@ -221,7 +233,9 @@ class KnowledgeManagementSystem:
         id=entity["name"],
         type=entity["type"],
         content=f"Entity of type {entity['type']}",
-        metadata=attributes.get(entity["name"], {}),
+        metadata=entity_attributes.get(
+          entity["name"], {}
+        ),
       )
       logger.info(
         f"Added entity {entity['name']} to content with ID {content.id}"
@@ -358,7 +372,9 @@ class KnowledgeManagementSystem:
         },
       )
 
-  def delete_content(self, content_id: str) -> None:
+  async def delete_content(
+    self, content_id: str
+  ) -> None:
     """
     Delete content from the KMS.
 
@@ -499,3 +515,11 @@ class KnowledgeManagementSystem:
         for rn in related_nodes
       ],
     }
+
+  def read_content(self, content_or_path: str) -> str:
+    """
+    Read content from a file if it's a path, or return the content directly if it's not.
+    """
+    if os.path.exists(content_or_path):
+      return self._read_file(content_or_path)
+    return content_or_path

@@ -5,25 +5,31 @@ This module provides functions for interacting with
 Language Learning Models (LLMs) using the litellm
 library. It includes functionality for making calls to
 LLMs, processing responses, handling JSON-formatted
-outputs, function-calling, history management, streaming,
+outputs, tool-calling, history management, streaming,
 and chaining multiple LLM calls.
 """
 
 import asyncio
 import json
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
-from dotenv import load_dotenv
-from litellm import completion
-from litellm.types.utils import FunctionCall
+from litellm import acompletion, completion
+from litellm.exceptions import InternalServerError
+from litellm.types.utils import (
+  ChatCompletionDeltaToolCall,
+  ChatCompletionMessageToolCall,
+  Choices,
+  Function,
+  ModelResponse,
+  StreamingChoices,
+)
+from litellm.utils import CustomStreamWrapper
 from loguru import logger
 
 #
-
-_ = load_dotenv()
 
 DEFAULT_MODEL = os.getenv(
   "DEFAULT_MODEL", "gpt-4o-mini"
@@ -43,17 +49,12 @@ DEFAULT_MODEL_FREQUENCY_PENALTY = float(
 
 #
 
-#
-
-RoleType = Literal[
-  "system", "assistant", "user", "function"
-]
+RoleType = Literal["system", "assistant", "user"]
 
 
 class Message(TypedDict):
   role: RoleType
-  content: str
-  name: str | None
+  content: str | dict[str, Any] | list[dict[str, Any]]
 
 
 @dataclass
@@ -73,6 +74,10 @@ class LLMParams:
       Controls diversity via nucleus sampling.
   frequency_penalty : float
       Penalizes frequent token usage.
+  response_format : dict[str, Any] | None
+      The format of the response.
+  extra_headers : dict[str, str]
+      Additional headers to pass to the API.
   """
 
   model: str = DEFAULT_MODEL
@@ -82,133 +87,147 @@ class LLMParams:
   frequency_penalty: float = (
     DEFAULT_MODEL_FREQUENCY_PENALTY
   )
-  response_format_type: Literal[
-    "text", "json_object"
-  ] = "text"
+  response_format: dict[str, Any] | None = None
+  extra_headers: dict[str, str] | None = None
 
 
-#
+def default_llm_params():
+  return LLMParams()
 
 
 async def call_llm(
-  messages: list[Message],
-  params: LLMParams = LLMParams(),
-  functions: list[dict[str, Any]] | None = None,
-) -> str | FunctionCall:
-  """
-  Call the LLM with the given messages and parameters.
+  messages: Iterable[Message],
+  params: LLMParams,
+  tools: Iterable[dict[str, Any]] | None = None,
+) -> str | ChatCompletionMessageToolCall:
+  # Prepare the completion kwargs
+  completion_kwargs: dict[str, Any] = {
+    "model": params.model,
+    "messages": messages,
+    "temperature": params.temperature,
+    "max_tokens": params.max_tokens,
+    "top_p": params.top_p,
+    "frequency_penalty": params.frequency_penalty,
+    "response_format": params.response_format,
+    "tools": tools,
+    "extra_headers": params.extra_headers,
+  }
 
-  Parameters
-  ----------
-  messages : list[Message]
-      The conversation history and current message(s).
-  params : LLMParams, optional
-      The parameters for the LLM call.
-  functions : list[dict[str, Any]], optional
-      The functions available for the model to call.
+  logger.trace(json.dumps(completion_kwargs, indent=2))
 
-  Yields
-  ------
-  Union[str, FunctionCall]:
-      Tokens or function call from the completion.
-  """
-  dbg_msg = json.dumps(messages, separators=(",", ":"))
-  logger.trace(
-    f"LLM call: {params.model}, messages: {dbg_msg}"
-  )
+  max_retries = 3
+  for attempt in range(max_retries):
+    try:
+      response = cast(
+        ModelResponse,
+        completion(**completion_kwargs),
+      )
+      choices_list = cast(
+        list[Choices],
+        response.choices,
+      )
+      choices = choices_list[0]
+      message = choices.message
+      result = message.content
+      tool_calls = message.tool_calls
+      logger.trace(
+        f"LLM Response: {result}, tool_calls: {tool_calls}"
+      )
+      return (
+        tool_calls[0] if tool_calls else str(result)
+      )
 
-  response = completion(
-    model=params.model,
-    messages=messages,
-    temperature=params.temperature,
-    max_tokens=params.max_tokens,
-    top_p=params.top_p,
-    frequency_penalty=params.frequency_penalty,
-    response_format={
-      "type": params.response_format_type
-    },
-    functions=functions,
-  )
-
-  message = response.choices[0].message
-  result = message.content
-  function_call = message.function_call
-  logger.trace(
-    f"LLM Response: {result}, function_call: {function_call}"
-  )
-  return function_call or str(result)
+    except InternalServerError as e:
+      if (
+        "Overloaded" in str(e)
+        and attempt < max_retries - 1
+      ):
+        logger.warning(
+          f"Attempt {attempt + 1} failed due to overload. Retrying..."
+        )
+        continue
+      raise
 
 
 async def call_llm_streaming(
-  messages: list[Message],
-  params: LLMParams = LLMParams(),
-  functions: list[dict[str, Any]] | None = None,
+  messages: Iterable[Message],
+  params: LLMParams,
+  tools: Iterable[dict[str, Any]] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
-  """
-  Call the LLM with streaming enabled.
-
-  Parameters
-  ----------
-  messages : list[Message]
-      The conversation history and current message(s).
-  params : LLMParams, optional
-      The parameters for the LLM call.
-  functions : list[dict[str, Any]], optional
-      The functions available for the model to call.
-
-  Yields
-  ------
-  dict[str, Any]
-      Tokens or function calls from the streaming response.
-  """
-  dbg_msg = json.dumps(messages, separators=(",", ":"))
-  logger.trace(
+  dbg_msg = json.dumps(
+    messages, separators=(",", ":"), indent=2
+  )
+  logger.debug(
     f"LLM streaming call: {params.model}, messages: {dbg_msg}"
   )
 
-  response = completion(
-    model=params.model,
-    messages=messages,
-    temperature=params.temperature,
-    max_tokens=params.max_tokens,
-    top_p=params.top_p,
-    frequency_penalty=params.frequency_penalty,
-    response_format={
-      "type": params.response_format_type
-    },
-    functions=functions,
-    stream=True,
-  )
-
-  is_func_call = False
-  func_call = {
-    "name": "",
-    "arguments": "",
+  completion_kwargs: dict[str, Any] = {
+    "model": params.model,
+    "messages": messages,
+    "temperature": params.temperature,
+    "max_tokens": params.max_tokens,
+    "top_p": params.top_p,
+    "frequency_penalty": params.frequency_penalty,
+    "response_format": params.response_format,
+    "tools": tools,
+    "stream": True,
+    "extra_headers": params.extra_headers,
   }
 
-  for part in response:
-    deltas = part["choices"][0]["delta"]
+  tool_calls: list[ChatCompletionDeltaToolCall] = []
 
-    if deltas.get("function_call") is not None:
-      is_func_call = True
-      fc: FunctionCall = deltas["function_call"]
+  response = cast(
+    CustomStreamWrapper,
+    await acompletion(**completion_kwargs),
+  )
+  async for chunk in response:
+    choices_list = cast(
+      list[StreamingChoices],
+      chunk["choices"],
+    )
+    choices = choices_list[0]
 
-      if fc.name:
-        func_call["name"] = fc.name
-      else:
-        func_call["arguments"] += fc.arguments
+    finish_reason = choices.finish_reason
+    if finish_reason == "tool_calls":
+      for tool_call in tool_calls:
+        yield {
+          "type": "tool_call",
+          "data": ChatCompletionMessageToolCall(
+            **tool_call.model_dump()
+          ),
+        }
 
-    if (
-      is_func_call
-      and part["choices"][0].get("finish_reason")
-      == "function_call"
-    ):
-      yield {
-        "type": "function_call",
-        "data": FunctionCall(**func_call),
-      }
-    elif "content" in deltas and not is_func_call:
-      token = deltas["content"] or ""
+    delta = choices.delta
+    if delta.tool_calls:
+      for tool_call in cast(
+        list[ChatCompletionDeltaToolCall],
+        delta["tool_calls"],
+      ):
+        if len(tool_calls) <= tool_call.index:
+          assert len(tool_calls) == tool_call.index
+          tool_calls.append(
+            ChatCompletionDeltaToolCall(
+              function=Function(
+                arguments=None,
+              ),
+              index=tool_call.index,
+            )
+          )
+
+        if tool_call.function.name:
+          tool_calls[
+            tool_call.index
+          ].function.name = tool_call.function.name
+
+        if tool_call.function.arguments:
+          tool_calls[
+            tool_call.index
+          ].function.arguments += (
+            tool_call.function.arguments
+          )
+
+    elif "content" in delta and delta["content"]:
+      token = str(delta["content"])
       yield {"type": "token", "data": token}
 
     await asyncio.sleep(
