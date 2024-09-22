@@ -20,7 +20,7 @@ aiosignal==1.3.1
     # via aiohttp
 annotated-types==0.7.0
     # via pydantic
-anyio==4.5.0
+anyio==4.6.0
     # via asyncer
     # via httpx
     # via openai
@@ -148,7 +148,7 @@ kubernetes==31.0.0
     # via chromadb
 lazify==0.4.0
     # via chainlit
-litellm==1.46.8
+litellm==1.47.0
     # via ecaa
 literalai==0.0.607
     # via chainlit
@@ -190,7 +190,7 @@ oauthlib==3.2.2
     # via requests-oauthlib
 onnxruntime==1.19.2
     # via chromadb
-openai==1.46.1
+openai==1.47.0
     # via ecaa
     # via litellm
 opentelemetry-api==1.27.0
@@ -417,7 +417,7 @@ watchfiles==0.20.0
     # via uvicorn
 websocket-client==1.8.0
     # via kubernetes
-websockets==13.0.1
+websockets==13.1
     # via uvicorn
 wrapt==1.16.0
     # via deprecated

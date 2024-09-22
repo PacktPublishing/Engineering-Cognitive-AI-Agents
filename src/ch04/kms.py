@@ -3,8 +3,11 @@
 Knowledge Management System
 """
 
+import asyncio
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -123,6 +126,7 @@ class KnowledgeManagementSystem:
     self,
     db_dir: str = "db",
     qa_collection_name: str = "qa_index",
+    max_workers: int = 5,
   ):
     os.makedirs(db_dir, exist_ok=True)
     self.graph = KnowledgeGraph(
@@ -136,6 +140,9 @@ class KnowledgeManagementSystem:
       db_dir, "files"
     )
     os.makedirs(self.file_storage_path, exist_ok=True)
+    self.executor = ThreadPoolExecutor(
+      max_workers=max_workers
+    )
 
   async def ingest_content(
     self, content: Content
@@ -523,3 +530,47 @@ class KnowledgeManagementSystem:
     if os.path.exists(content_or_path):
       return self._read_file(content_or_path)
     return content_or_path
+
+  def ingest_content_background(
+    self, content: Content
+  ) -> None:
+    """
+    Submit a background task for content ingestion.
+
+    Parameters
+    ----------
+    content : Content
+        The content to ingest.
+    """
+    self.executor.submit(
+      self._ingest_content_background, content
+    )
+
+  def _ingest_content_background(
+    self, content: Content
+  ) -> None:
+    thread_name = threading.current_thread().name
+    logger.info(
+      f"Background ingestion task started in thread: {thread_name}"
+    )
+    try:
+      loop = asyncio.new_event_loop()
+      asyncio.set_event_loop(loop)
+      ingestion_report = loop.run_until_complete(
+        self.ingest_content(content)
+      )
+      loop.close()
+      logger.info(
+        f"Content ingested successfully in thread: {thread_name}"
+      )
+      logger.info(
+        f"Ingestion report: {ingestion_report}"
+      )
+    except Exception as e:
+      logger.exception(
+        f"Error in background ingestion task: {e}"
+      )
+    finally:
+      logger.info(
+        f"Background ingestion task completed in thread: {thread_name}"
+      )

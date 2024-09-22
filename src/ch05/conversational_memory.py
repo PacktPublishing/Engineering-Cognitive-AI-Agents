@@ -38,11 +38,13 @@ Note: This module is designed for asynchronous operation, particularly in its
 interaction with the KMS and for long-running operations like summarization.
 """
 
+import asyncio
 import json
 import os
 import sqlite3
 import threading
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from sqlite3 import Connection, Row, connect
@@ -95,11 +97,15 @@ class ConversationalMemory:
     kms: KnowledgeManagementSystem,
     db_path: str,
     max_message_history: int = MAX_MESSAGE_HISTORY,
+    max_workers: int = 5,
   ):
     self.kms = kms
     self.db_path = db_path
     self.max_message_history = max_message_history
     self.local = threading.local()
+    self.executor = ThreadPoolExecutor(
+      max_workers=max_workers
+    )
 
   @property
   def conn(self) -> Connection:
@@ -147,7 +153,7 @@ class ConversationalMemory:
   ) -> IngestionReport | None:
     # Update summary if necessary
     #
-    # We have to account for the system message and any
+    # We must account for the system message and any
     # previous summary that may have been added.
     has_previous_summary = bool(
       self.get_conversation_summary(conversation_id)
@@ -165,7 +171,7 @@ class ConversationalMemory:
       logger.info(
         f"Updating summary for conversation {conversation_id}"
       )
-      conversation_summary = await self.summarize_messages(
+      _ = await self.summarize_messages(
         conversation_id=conversation_id,
         messages=self.get_last_n_messages(
           conversation_id,
@@ -333,9 +339,6 @@ class ConversationalMemory:
       metadata_filter=metadata_filter,
       num_rewordings=1,
     )
-    print(
-      f"Results: {json.dumps(results, indent=2, default=str)}"
-    )
 
     relevant_messages: list[ConversationMessage] = []
     for result in results:
@@ -495,3 +498,59 @@ class ConversationalMemory:
       messages.append(self._row_to_message(row))
 
     return messages
+
+  def add_message_background(
+    self,
+    conversation_id: UUID,
+    message: ConversationMessage,
+    bypass_ingestion: bool = False,
+  ) -> None:
+    """
+    Submit a background task for adding a message to the conversation.
+
+    Parameters
+    ----------
+    conversation_id : UUID
+        The ID of the conversation to add the message to.
+    message : ConversationMessage
+        The message to add.
+    bypass_ingestion : bool, optional
+        If True, skip ingesting the message into the KMS.
+    """
+    self.executor.submit(
+      self._add_message_background,
+      conversation_id,
+      message,
+      bypass_ingestion,
+    )
+
+  def _add_message_background(
+    self,
+    conversation_id: UUID,
+    message: ConversationMessage,
+    bypass_ingestion: bool,
+  ) -> None:
+    thread_name = threading.current_thread().name
+    logger.info(
+      f"Background add_message task started in thread: {thread_name}"
+    )
+    try:
+      loop = asyncio.new_event_loop()
+      asyncio.set_event_loop(loop)
+      loop.run_until_complete(
+        self.add_message(
+          conversation_id, message, bypass_ingestion
+        )
+      )
+      loop.close()
+      logger.info(
+        f"Message added successfully in thread: {thread_name}"
+      )
+    except Exception as e:
+      logger.exception(
+        f"Error in background add_message task: {e}"
+      )
+    finally:
+      logger.info(
+        f"Background add_message task completed in thread: {thread_name}"
+      )

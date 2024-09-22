@@ -6,9 +6,7 @@ max_tokens: 8192
 
 I reflect on my recent conversation with the user.
 
-I will analyze the episode and extract important
-insights, lessons, and a high-level understanding that
-goes beyond individual message-level information.
+I will analyze the episode and extract important insights, lessons, and a high-level understanding that goes beyond individual message-level information.
 
 I will consider the following aspects in my reflection:
 
@@ -23,26 +21,25 @@ I will consider the following aspects in my reflection:
 9. Connections to other knowledge or experiences
 10. Potential implications for future interactions
 
-Short-term memory:
-{whiteboard}
+[SHORT-TERM MEMORY]
+{{whiteboard}}
 
-Episode messages:
-{episode_messages}
+[CONVERSATION HISTORY]
+{{message_history}}
 
-I provide your reflection in the following markdown
-format:
+I provide your reflection in the following markdown format:
 
 # Episode Reflection
 
-[A brief overview of the episode]
+- [A brief overview of the episode]
 
 ## Main Themes
 
-[List the primary topics or themes discussed]
+- [List the primary topics or themes discussed]
 
 ## User Goals
 
-[Identify the user's main objectives or intentions]
+- [Identify the user's main objectives or intentions]
 
 ## Key Insights
 
@@ -58,20 +55,20 @@ format:
 
 ## Emotional Context
 
-[Describe the overall emotional tone of the interaction]
+- [Describe the overall emotional tone of the interaction]
 
 ## Self-Evaluation
 
-[Assess your own performance and identify areas for improvement]
+- [Assess your own performance and identify areas for improvement]
 
 ## Connections and Implications
 
-[Discuss how this episode relates to other knowledge and its potential impact on future interactions]
+- [Discuss how this episode relates to other knowledge and its potential impact on future interactions]
 
 ## Action Items
 
-[List any follow-up actions or changes in approach based on this episode]
+- [List any follow-up actions or changes in approach based on this episode]
 
 ## Miscellaneous
 
-[Any other thoughts or observations]
+- [Any other thoughts or observations]

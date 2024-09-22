@@ -3,16 +3,11 @@
 Episodic memory
 """
 
-import asyncio
 import json
 import sqlite3
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TypedDict
 from uuid import uuid4
-
-from loguru import logger
 
 from ch03.llm import Message
 from ch03.prompt import load_prompt
@@ -71,7 +66,6 @@ class Episode:
 
 class EpisodicMemory:
   first_episode_message: ConversationMessage | None
-  executor: ThreadPoolExecutor
 
   def __init__(
     self,
@@ -86,7 +80,6 @@ class EpisodicMemory:
     self.conn.row_factory = sqlite3.Row
     self._create_tables()
     self.first_episode_message = None
-    self.executor = ThreadPoolExecutor(max_workers=5)
 
   def _create_tables(self) -> None:
     with self.conn:
@@ -156,7 +149,6 @@ class EpisodicMemory:
     reflection = await self._create_reflection(
       episode_messages, whiteboard
     )
-    logger.error(f"reflection:\n\n{reflection}")
     await self._store_and_index_episode(
       user_message, reflection
     )
@@ -263,9 +255,6 @@ class EpisodicMemory:
         whiteboard=whiteboard,
       )
     )
-    logger.error(
-      f"episode_boundary_detection_json:\n\n{episode_boundary_detection_json}"
-    )
     return json.loads(episode_boundary_detection_json)
 
   def _get_episode_messages(
@@ -300,35 +289,6 @@ class EpisodicMemory:
         whiteboard=whiteboard,
       )
     )
-
-  def _ingest_content_background(
-    self, content: Content
-  ) -> None:
-    thread_name = threading.current_thread().name
-    logger.info(
-      f"Background task started in thread: {thread_name}"
-    )
-    try:
-      loop = asyncio.new_event_loop()
-      asyncio.set_event_loop(loop)
-      ingestion_report = loop.run_until_complete(
-        self.kms.ingest_content(content)
-      )
-      loop.close()
-      logger.info(
-        f"Content ingested successfully in thread: {thread_name}"
-      )
-      logger.info(
-        f"Ingestion report: {ingestion_report}"
-      )
-    except Exception as e:
-      logger.exception(
-        f"Error in background task: {e}"
-      )
-    finally:
-      logger.info(
-        f"Background task completed in thread: {thread_name}"
-      )
 
   async def _store_and_index_episode(
     self,
@@ -368,7 +328,5 @@ class EpisodicMemory:
       },
     )
 
-    # Submit the task to the thread pool
-    self.executor.submit(
-      self._ingest_content_background, content
-    )
+    # Submit the background ingestion task to KMS
+    self.kms.ingest_content_background(content)

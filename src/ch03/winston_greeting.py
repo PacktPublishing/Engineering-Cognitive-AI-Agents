@@ -320,8 +320,7 @@ async def handle_message(message: cl.Message) -> None:
   """
   history: list[Message] = cl.user_session.get(
     "history"
-  )  # type: ignore
-  assert isinstance(history, list)
+  )
   history.append(
     cast(
       Message,

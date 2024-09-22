@@ -91,7 +91,10 @@ from ch03.llm import (
   call_llm_streaming,
 )
 from ch03.prompt import Prompt, load_prompt
-from ch04.kms import Content, KnowledgeManagementSystem
+from ch04.kms import (
+  Content,
+  KnowledgeManagementSystem,
+)
 
 #
 
@@ -623,7 +626,7 @@ async def handle_question_intent(
 
   # Retrieve relevant information from the KMS
   retrieved_content = await kms.retrieve_content(
-    user_message
+    str(user_message)
   )
 
   # Prepare the context for the response

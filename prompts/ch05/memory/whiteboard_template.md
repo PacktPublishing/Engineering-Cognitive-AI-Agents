@@ -1,23 +1,23 @@
 # My current focus
 
-[Empty]
+- [No focus items]
 
 # User observations
 
-[Empty]
+- [No user observations]
 
 # Ongoing tasks
 
-• [No tasks listed]
+- [No tasks listed]
 
 # Recent key points
 
-• [No key points listed]
+- [No key points listed]
 
 # Unresolved questions
 
-• [No questions listed]
+- [No questions listed]
 
 # Context notes
 
-[Empty]
+- [No provided context]

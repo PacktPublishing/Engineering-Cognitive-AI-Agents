@@ -73,12 +73,9 @@ running the application.
 """
 
 import ast
-import asyncio
 import json
 import os
 import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, cast
@@ -100,9 +97,11 @@ from ch03.llm import (
   call_llm_streaming,
 )
 from ch03.prompt import Prompt, load_prompt
-from ch04.kms import KnowledgeManagementSystem
-from ch05.conversational_memory import (
+from ch04.kms import (
   Content,
+  KnowledgeManagementSystem,
+)
+from ch05.conversational_memory import (
   ConversationalMemory,
   ConversationMessage,
 )
@@ -170,42 +169,6 @@ cm = ConversationalMemory(
 wb = Whiteboard(
   db_path=MEMORY_DB_PATH,
 )
-
-#
-
-# Create a ThreadPoolExecutor
-executor = ThreadPoolExecutor(max_workers=5)
-
-
-def add_message_background(
-  conversation_id: UUID, message: ConversationMessage
-) -> None:
-  thread_name = threading.current_thread().name
-  logger.info(
-    f"Background task started in thread: {thread_name}"
-  )
-  try:
-    # Get a thread-specific database connection
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(
-      cm.add_message(
-        conversation_id=conversation_id,
-        message=message,
-      )
-    )
-    loop.close()
-    logger.info(
-      f"Message added successfully in thread: {thread_name}"
-    )
-  except Exception as e:
-    logger.exception(f"Error in background task: {e}")
-  finally:
-    logger.info(
-      f"Background task completed in thread: {thread_name}"
-    )
-
 
 #
 
@@ -420,11 +383,9 @@ async def start_chat() -> None:
       "content": greeting_response,
     },
   )
-  # Submit the task to the thread pool
-  executor.submit(
-    add_message_background,
-    conversation_id,
-    assistant_message,
+  await cm.add_message(
+    conversation_id=conversation_id,
+    message=assistant_message,
   )
 
 
@@ -449,11 +410,9 @@ async def handle_message(message: cl.Message) -> None:
       "content": message.content,
     },
   )
-  # Submit the task to the thread pool
-  executor.submit(
-    add_message_background,
-    conversation_id,
-    user_message,
+  cm.add_message_background(
+    conversation_id=conversation_id,
+    message=user_message,
   )
 
   # Retrieve conversation history
@@ -482,9 +441,17 @@ async def handle_message(message: cl.Message) -> None:
     messages=history,
     prompt=MULTI_INTENT_PROMPT,
   )
+  context: dict[str, Any] = {"intents": intents}
+
+  # Get relevant information from the KMS
+  retrieved_content = await kms.retrieve_content(
+    str(user_message["content"])
+  )
+  context["relevant_content"] = [
+    content.content for content in retrieved_content
+  ]
 
   # Update the whiteboard with the new context
-  context = {"intents": intents}
   updated_whiteboard = await wb.update_whiteboard(
     conversation_id=conversation_id,
     messages=history,
@@ -576,11 +543,9 @@ async def handle_message(message: cl.Message) -> None:
       "content": final_response,
     },
   )
-  # Submit the task to the thread pool
-  executor.submit(
-    add_message_background,
-    conversation_id,
-    final_assistant_message,
+  cm.add_message_background(
+    conversation_id=conversation_id,
+    message=final_assistant_message,
   )
 
 
@@ -780,7 +745,7 @@ async def handle_question_intent(
 
   # Retrieve relevant information from the KMS
   retrieved_content = await kms.retrieve_content(
-    user_message
+    str(user_message)
   )
 
   # Prepare the context for the response
