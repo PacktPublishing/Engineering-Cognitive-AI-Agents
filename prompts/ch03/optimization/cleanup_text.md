@@ -1,4 +1,7 @@
 ---
+model: gpt-4o-mini
+temperature: 0.3
+max_tokens: 8192
 ---
 
 # Cleanup Text

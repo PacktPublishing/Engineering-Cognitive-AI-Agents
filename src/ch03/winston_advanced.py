@@ -322,7 +322,6 @@ async def handle_message(message: cl.Message) -> None:
     messages=history,
     prompt=MULTI_INTENT_PROMPT,
   )
-  logger.error(f"intents: {intents}")
 
   intent_handlers = {
     "weather": handle_weather_intent,

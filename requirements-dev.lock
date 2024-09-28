@@ -12,9 +12,9 @@
 -e file:.
 aiofiles==23.2.1
     # via chainlit
-aiohappyeyeballs==2.4.0
+aiohappyeyeballs==2.4.2
     # via aiohttp
-aiohttp==3.10.5
+aiohttp==3.10.6
     # via litellm
 aiosignal==1.3.1
     # via aiohttp
@@ -40,6 +40,9 @@ backoff==2.2.1
     # via posthog
 bcrypt==4.2.0
     # via chromadb
+beautifulsoup4==4.12.3
+    # via feedfinder2
+    # via newspaper3k
 bidict==0.23.1
     # via python-socketio
 build==1.2.2
@@ -61,20 +64,23 @@ chevron==0.14.0
     # via literalai
 chroma-hnswlib==0.7.6
     # via chromadb
-chromadb==0.5.7
+chromadb==0.5.11
     # via ecaa
 click==8.1.7
     # via chainlit
     # via litellm
+    # via nltk
     # via typer
     # via uvicorn
 coloredlogs==15.0.1
     # via onnxruntime
 comm==0.2.2
     # via ipykernel
+cssselect==1.2.0
+    # via newspaper3k
 dataclasses-json==0.6.7
     # via chainlit
-debugpy==1.8.5
+debugpy==1.8.6
     # via ipykernel
 decorator==5.1.1
     # via ipython
@@ -94,8 +100,13 @@ executing==2.1.0
 fastapi==0.112.4
     # via chainlit
     # via chromadb
+feedfinder2==0.0.4
+    # via newspaper3k
+feedparser==6.0.11
+    # via newspaper3k
 filelock==3.16.1
     # via huggingface-hub
+    # via tldextract
     # via torch
     # via transformers
     # via virtualenv
@@ -130,7 +141,7 @@ httpx==0.27.2
     # via chromadb
     # via literalai
     # via openai
-huggingface-hub==0.25.0
+huggingface-hub==0.25.1
     # via sentence-transformers
     # via tokenizers
     # via transformers
@@ -142,6 +153,7 @@ idna==3.10
     # via anyio
     # via httpx
     # via requests
+    # via tldextract
     # via yarl
 importlib-metadata==8.4.0
     # via litellm
@@ -155,12 +167,15 @@ ipython==8.27.0
     # via ipykernel
 jedi==0.19.1
     # via ipython
+jieba3k==0.35.1
+    # via newspaper3k
 jinja2==3.1.4
     # via litellm
     # via torch
 jiter==0.5.0
     # via openai
 joblib==1.4.2
+    # via nltk
     # via scikit-learn
 jsonschema==4.23.0
     # via litellm
@@ -175,12 +190,18 @@ kubernetes==31.0.0
     # via chromadb
 lazify==0.4.0
     # via chainlit
-litellm==1.47.0
+litellm==1.48.2
     # via ecaa
 literalai==0.0.607
     # via chainlit
 loguru==0.7.2
     # via ecaa
+lxml==5.3.0
+    # via ecaa
+    # via lxml-html-clean
+    # via newspaper3k
+lxml-html-clean==0.2.2
+    # via lxml
 markdown-it-py==3.0.0
     # via rich
 markupsafe==2.1.5
@@ -192,7 +213,7 @@ matplotlib-inline==0.1.7
     # via ipython
 mdurl==0.1.2
     # via markdown-it-py
-mmh3==5.0.0
+mmh3==5.0.1
     # via chromadb
 monotonic==1.6
     # via posthog
@@ -208,6 +229,10 @@ nest-asyncio==1.6.0
     # via ipykernel
 networkx==3.3
     # via torch
+newspaper3k==0.2.8
+    # via ecaa
+nltk==3.9.1
+    # via newspaper3k
 nodeenv==1.9.1
     # via pre-commit
 numpy==1.26.4
@@ -223,7 +248,7 @@ oauthlib==3.2.2
     # via requests-oauthlib
 onnxruntime==1.19.2
     # via chromadb
-openai==1.47.0
+openai==1.50.1
     # via ecaa
     # via litellm
 opentelemetry-api==1.27.0
@@ -289,6 +314,7 @@ parso==0.8.4
 pexpect==4.9.0
     # via ipython
 pillow==10.4.0
+    # via newspaper3k
     # via sentence-transformers
 platformdirs==4.3.6
     # via jupyter-core
@@ -298,7 +324,7 @@ pluggy==1.5.0
 posthog==3.6.6
     # via chromadb
 pre-commit==3.8.0
-prompt-toolkit==3.0.47
+prompt-toolkit==3.0.48
     # via ipython
 protobuf==4.25.5
     # via googleapis-common-protos
@@ -340,6 +366,7 @@ pytest-asyncio==0.24.0
 python-dateutil==2.9.0.post0
     # via jupyter-client
     # via kubernetes
+    # via newspaper3k
     # via posthog
 python-dotenv==1.0.1
     # via chainlit
@@ -357,6 +384,7 @@ pyyaml==6.0.2
     # via chromadb
     # via huggingface-hub
     # via kubernetes
+    # via newspaper3k
     # via pre-commit
     # via python-frontmatter
     # via transformers
@@ -368,17 +396,24 @@ referencing==0.35.1
     # via jsonschema
     # via jsonschema-specifications
 regex==2024.9.11
+    # via nltk
     # via tiktoken
     # via transformers
 requests==2.32.3
+    # via feedfinder2
     # via huggingface-hub
     # via kubernetes
     # via litellm
+    # via newspaper3k
     # via opentelemetry-exporter-otlp-proto-http
     # via posthog
+    # via requests-file
     # via requests-oauthlib
     # via tiktoken
+    # via tldextract
     # via transformers
+requests-file==2.1.0
+    # via tldextract
 requests-oauthlib==2.0.0
     # via kubernetes
 rich==13.8.1
@@ -389,7 +424,7 @@ rpds-py==0.20.0
     # via referencing
 rsa==4.9
     # via google-auth
-ruff==0.6.7
+ruff==0.6.8
 safetensors==0.4.5
     # via transformers
 scikit-learn==1.5.2
@@ -402,12 +437,15 @@ sentence-transformers==3.1.1
 setuptools==75.1.0
     # via opentelemetry-instrumentation
     # via torch
+sgmllib3k==1.0.0
+    # via feedparser
 shellingham==1.5.4
     # via typer
 simple-websocket==1.0.0
     # via python-engineio
 six==1.16.0
     # via asttokens
+    # via feedfinder2
     # via kubernetes
     # via posthog
     # via python-dateutil
@@ -415,6 +453,8 @@ sniffio==1.3.1
     # via anyio
     # via httpx
     # via openai
+soupsieve==2.6
+    # via beautifulsoup4
 stack-data==0.6.3
     # via ipython
 starlette==0.37.2
@@ -431,7 +471,11 @@ threadpoolctl==3.5.0
     # via scikit-learn
 tiktoken==0.7.0
     # via litellm
-tokenizers==0.19.1
+tinysegmenter==0.3
+    # via newspaper3k
+tldextract==5.1.2
+    # via newspaper3k
+tokenizers==0.20.0
     # via chromadb
     # via litellm
     # via transformers
@@ -445,6 +489,7 @@ tornado==6.4.1
 tqdm==4.66.5
     # via chromadb
     # via huggingface-hub
+    # via nltk
     # via openai
     # via sentence-transformers
     # via transformers
@@ -455,7 +500,7 @@ traitlets==5.14.3
     # via jupyter-client
     # via jupyter-core
     # via matplotlib-inline
-transformers==4.44.2
+transformers==4.45.1
     # via sentence-transformers
 typer==0.12.5
     # via chromadb
@@ -498,7 +543,7 @@ wrapt==1.16.0
     # via opentelemetry-instrumentation
 wsproto==1.2.0
     # via simple-websocket
-yarl==1.11.1
+yarl==1.13.0
     # via aiohttp
 zipp==3.20.2
     # via importlib-metadata

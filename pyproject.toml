@@ -12,6 +12,8 @@ dependencies = [
     "chromadb>=0.5.5",
     "sentence-transformers>=3.0.1",
     "pytest-asyncio>=0.24.0",
+    "newspaper3k>=0.2.8",
+    "lxml[html_clean]>=5.3.0",
 ]
 readme = "README.md"
 requires-python = ">=3.12.4"
@@ -48,3 +50,5 @@ ch04_knows = "chainlit run src/ch04/winston_knows.py"
 ch05_converses = "chainlit run src/ch05/winston_converses.py"
 ch05_ponders = "chainlit run src/ch05/winston_ponders.py"
 ch05_remembers = "chainlit run src/ch05/winston_remembers.py"
+donald_goals = "chainlit run --port 8003 src/ch07/donald_goals.py -w"
+donald_qa = "chainlit run --port 8003 src/ch07/donald_qa.py -w"

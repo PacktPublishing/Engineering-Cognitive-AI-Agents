@@ -588,7 +588,6 @@ async def handle_remember_intent(
       user_message=user_message
     )
   )
-  assert isinstance(extraction_response, str)
   extracted_info = json.loads(extraction_response)
   content = Content(
     id=str(uuid.uuid4()),

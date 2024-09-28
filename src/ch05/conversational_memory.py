@@ -106,6 +106,7 @@ class ConversationalMemory:
     self.executor = ThreadPoolExecutor(
       max_workers=max_workers
     )
+    self._create_tables()
 
   @property
   def conn(self) -> Connection:
@@ -167,7 +168,10 @@ class ConversationalMemory:
     # Don't include the system message and any previous
     # summary in the message count
     num_messages -= message_offset
-    if num_messages % self.max_message_history == 0:
+    if (
+      num_messages > 0
+      and num_messages % self.max_message_history == 0
+    ):
       logger.info(
         f"Updating summary for conversation {conversation_id}"
       )

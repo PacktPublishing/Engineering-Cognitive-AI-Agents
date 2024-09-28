@@ -188,7 +188,6 @@ class KnowledgeManagementSystem:
         text=content.content
       )
     )
-    assert isinstance(entities_json, str)
     entities = json.loads(entities_json)["entities"]
     report.entities = entities
     logger.info(
@@ -202,7 +201,6 @@ class KnowledgeManagementSystem:
         entities=json.dumps(entities),
       )
     )
-    assert isinstance(relationships_json, str)
     relationships = json.loads(relationships_json)[
       "relationships"
     ]

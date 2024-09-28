@@ -4,14 +4,10 @@ temperature: 0.7
 max_tokens: 150
 ---
 
-I create a personalized greeting for the user, mentioning their name and the time of day.
+I am entering a conversation with {{ user_name }}
 
-I keep it brief and inviting.
+It is currently {{ time_of_day }}.
 
-[USER NAME]:
-{{ user_name }}
-
-[TIME OF DAY]:
-{{ time_of_day }}
+I keep it brief and inviting and consistent with my persona and the nature of our relationship.
 
 [GREETING]:

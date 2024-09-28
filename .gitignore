@@ -197,3 +197,6 @@ src_files.md
 prompts_files.md
 book_files.md
 chapter_content_files.md
+
+public/
+**/bionic/
