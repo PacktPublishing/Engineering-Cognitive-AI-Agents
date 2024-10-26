@@ -1,6 +1,6 @@
 [project]
 name = "ecaa"
-version = "0.1.0"
+version = "0.2.0"
 description = "Engineering Cognitive AI Agents"
 authors = [{ name = "Donald Thompson", email = "witt3rd@witt3rd.com" }]
 dependencies = [
@@ -14,6 +14,7 @@ dependencies = [
     "pytest-asyncio>=0.24.0",
     "newspaper3k>=0.2.8",
     "lxml[html_clean]>=5.3.0",
+    "pydantic>=2.9.2",
 ]
 readme = "README.md"
 requires-python = ">=3.12.4"
@@ -25,6 +26,7 @@ dev-dependencies = [
     "ipykernel>=6.29.5",
     "pytest>=8.3.2",
     "ruff>=0.6.5",
+    "pip>=24.2",
 ]
 
 [tool.ruff]

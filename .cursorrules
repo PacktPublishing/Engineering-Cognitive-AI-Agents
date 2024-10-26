@@ -1,0 +1,15 @@
+# Python Coding Conventions
+
+- Python version: 3.12+
+- Use snake_case for variable names
+- Use type hints for all functions
+- Use dict[], list[], set[] for type annotations (not typing.Dict, typing.List, typing.Set)
+- Always use fully specified type annotations such as `dict[<key_type>, <value_type>]` and `list[<element_type>]` instead of plain `dict`, `list`, etc., to enhance code clarity and type safety.
+- Use | None for optional types (not Optional[T])
+- Use f-strings for string formatting
+- Add trailing commas to function and method arguments lists
+- Add trailing commas to lists, dictionaries, sets, tuples, etc.
+- Use numpy-style docstrings for all functions and methods
+
+# OpenAI
+- Prefer gpt-4o-mini for all LLM calls

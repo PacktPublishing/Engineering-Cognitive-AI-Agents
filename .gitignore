@@ -190,13 +190,6 @@ wheels/
 **/chainlit.md
 .chainlit/
 .files/
-db/
-test_db/
-chapter_content/
-src_files.md
-prompts_files.md
-book_files.md
-chapter_content_files.md
+*_files.md
 
 public/
-**/bionic/
