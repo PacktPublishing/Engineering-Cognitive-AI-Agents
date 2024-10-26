@@ -2,9 +2,10 @@
 import json
 from pathlib import Path
 
-from winston.core.agent import (
-  AgentConfig,
+from winston.core.agent import AgentConfig
+from winston.core.behavior import (
   Behavior,
+  BehaviorType,
 )
 from winston.core.models import ModelType
 from winston.ui.chainlit_app import AgentChat
@@ -33,13 +34,12 @@ class WinstonChat(AgentChat):
     # Ensure conversation behavior exists
     behaviors = config_data.get("behaviors", [])
     if not any(
-      b.get("name") == "conversation"
+      b.get("type") == BehaviorType.CONVERSATION
       for b in behaviors
     ):
       behaviors.append(
         {
-          "name": "conversation",
-          "type": "conversation",
+          "type": BehaviorType.CONVERSATION,
           "model": "gpt-4o-mini",
           "temperature": 0.7,
           "stream": True,
@@ -49,14 +49,15 @@ class WinstonChat(AgentChat):
     # Convert behaviors to Behavior objects
     behaviors = [
       Behavior(
-        name=behavior["name"],
-        type=behavior.get("type", "conversation"),
+        type=BehaviorType(
+          behavior.get("type", "conversation")
+        ),
         model=ModelType(
           behavior.get("model", "gpt-4o-mini")
         ),
         temperature=behavior.get("temperature", 0.7),
         stream=behavior.get("stream", True),
-        tool_ids=None,  # Changed from tools to tool_ids
+        tool_ids=None,
       )
       for behavior in behaviors
     ]

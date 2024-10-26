@@ -3,15 +3,17 @@ from typing import cast
 
 import chainlit as cl
 
-from winston.core.agent import (
+from winston.agents.base import (
   Agent,
   AgentConfig,
-  AgentRegistry,
 )
 from winston.core.messages import (
   CommunicationType,
   Message,
-  MessageContent,  # Add this import
+  MessageContent,
+)
+from winston.core.registry import (
+  AgentRegistry,  # Fix the import
 )
 
 

@@ -3,7 +3,10 @@ from pydantic import BaseModel, Field
 
 from winston.core.agent import (
   AgentConfig,
+)
+from winston.core.behavior import (
   Behavior,
+  BehaviorType,
 )
 from winston.core.models import ModelType
 from winston.core.tools import (
@@ -104,14 +107,11 @@ class ToolEnabledWinstonChat(AgentChat):
       capabilities={"conversation"},
       behaviors=[
         Behavior(
-          name="conversation",
-          type="conversation",
+          type=BehaviorType.CONVERSATION,
           model=ModelType.GPT4O_MINI,
           temperature=0.7,
           stream=True,
-          tool_ids=[
-            "get_current_weather"  # Use the tool name as the tool_id
-          ],
+          tool_ids=["get_current_weather"],
         ),
       ],
       prompts={

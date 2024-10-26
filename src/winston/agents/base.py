@@ -22,7 +22,6 @@ from winston.core.messages import (
   MessageContent,
 )
 from winston.core.tools import (
-  Tool,
   ToolRegistry,
 )
 
@@ -73,19 +72,11 @@ class Agent:
     self.id = config.id
     self.type = config.type
     self.capabilities = config.capabilities
-    self.behaviors: dict[str, Behavior] = {}
+    self.behaviors: dict[BehaviorType, Behavior] = {}
 
     # Initialize behaviors
     for behavior in config.behaviors:
-      behavior_config = Behavior(
-        name=behavior.name,
-        type=behavior.type,
-        model=behavior.model,
-        temperature=behavior.temperature,
-        stream=behavior.stream,
-        tool_ids=behavior.tool_ids,
-      )
-      self.behaviors[behavior.name] = behavior_config
+      self.behaviors[behavior.type] = behavior
 
     self.prompts = config.prompts
     self.state = AgentState()
@@ -138,7 +129,7 @@ class Agent:
       for msg in history:
         messages.append(
           {
-            "role": str(msg.get("role")),  # type: ignore
+            "role": str(msg.get("role")),
             "content": str(msg.get("content")),
           }
         )
@@ -163,14 +154,11 @@ class Agent:
     # Add tools if configured for this behavior
     if behavior.tool_ids:
       tool_registry = ToolRegistry()
-      tools: list[Tool] = []
-      for tool_id in behavior.tool_ids:
-        tool = tool_registry.get_tool(tool_id)
-        if tool is None:
-          raise ValueError(
-            f"Tool with ID '{tool_id}' not found in the tool registry"
-          )
-        tools.append(tool)
+      tools = [
+        tool_registry.get_tool(tool_id)
+        for tool_id in behavior.tool_ids
+        if tool_registry.get_tool(tool_id)
+      ]
 
       functions = [
         {
@@ -305,13 +293,13 @@ class Agent:
     message: Message,
   ) -> AsyncIterator[str]:
     """Main entry point for message handling."""
-    behavior_name = (
-      "conversation"
+    behavior_type = (
+      BehaviorType.CONVERSATION
       if message.type == CommunicationType.CONVERSATION
-      else message.type.value
+      else BehaviorType(message.type.value)
     )
 
-    behavior = self.behaviors.get(behavior_name)
+    behavior = self.behaviors.get(behavior_type)
     if not behavior:
       yield (
         f"No behavior found for message type: {message.type}. "
@@ -323,80 +311,3 @@ class Agent:
       behavior, message
     ):
       yield response
-
-
-class AgentRegistry:
-  """
-  Central registry for agent discovery and management.
-
-  This class provides functionality to register agents, retrieve agents by ID,
-  and find agents based on their capabilities.
-
-  Attributes:
-      agents: A dictionary mapping agent IDs to Agent instances.
-      capability_index: A dictionary mapping capabilities to sets of agent IDs.
-  """
-
-  def __init__(self) -> None:
-    self.agents: dict[str, Agent] = {}
-    self.capability_index: dict[str, set[str]] = {}
-
-  async def register(self, agent: Agent) -> None:
-    """
-    Register an agent in the registry.
-
-    This method adds the agent to the main registry and updates the capability index.
-
-    Parameters
-    ----------
-    agent : Agent
-        The agent to be registered.
-
-    Returns
-    -------
-    None
-    """
-    self.agents[agent.id] = agent
-    for capability in agent.capabilities:
-      if capability not in self.capability_index:
-        self.capability_index[capability] = set()
-      self.capability_index[capability].add(agent.id)
-
-  async def get_agent(
-    self, agent_id: str
-  ) -> Agent | None:
-    """
-    Retrieve an agent by its ID.
-
-    Parameters
-    ----------
-    agent_id : str
-        The ID of the agent to retrieve.
-
-    Returns
-    -------
-    Agent | None
-        The agent with the specified ID, or None if not found.
-    """
-    return self.agents.get(agent_id)
-
-  async def find_agents_by_capability(
-    self, capability: str
-  ) -> list[Agent]:
-    """
-    Find agents that have a specific capability.
-
-    Parameters
-    ----------
-    capability : str
-        The capability to search for.
-
-    Returns
-    -------
-    list[Agent]
-        A list of agents that have the specified capability.
-    """
-    agent_ids = self.capability_index.get(
-      capability, set()
-    )
-    return [self.agents[aid] for aid in agent_ids]

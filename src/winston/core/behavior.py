@@ -1,6 +1,15 @@
 from dataclasses import dataclass
+from enum import StrEnum
 
 from winston.core.models import ModelType
+
+
+class BehaviorType(StrEnum):
+  """Types of behaviors an agent can have."""
+
+  CONVERSATION = "conversation"
+  FUNCTION = "function"
+  EVENT = "event"
 
 
 @dataclass
@@ -10,10 +19,8 @@ class Behavior:
 
   Parameters
   ----------
-  name : str
-      Name of the behavior.
-  type : str, optional
-      Type of behavior, defaults to "default".
+  type : BehaviorType
+      Type of behavior that determines its purpose and handling.
   model : ModelType, optional
       The model to use, defaults to GPT4O_MINI.
   temperature : float, optional
@@ -24,8 +31,7 @@ class Behavior:
       List of tool IDs to enable for this behavior.
   """
 
-  name: str
-  type: str = "default"
+  type: BehaviorType
   model: ModelType = ModelType.GPT4O_MINI
   temperature: float = 0.7
   stream: bool = True
