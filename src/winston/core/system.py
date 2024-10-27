@@ -3,11 +3,11 @@
 from typing import Any, AsyncIterator
 
 from winston.core.messages import Message, Response
-from winston.core.protocols import Agent
+from winston.core.protocols import Agent, System
 from winston.core.tools import Tool
 
 
-class AgentSystem:
+class AgentSystem(System):
   """Central system managing agent communication and tools."""
 
   def __init__(self) -> None:

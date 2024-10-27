@@ -1,7 +1,5 @@
 """Winston chat implementation with Chainlit."""
 
-from pathlib import Path
-
 from winston.core.agent import AgentConfig, BaseAgent
 from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
@@ -30,13 +28,9 @@ class WinstonChat(AgentChat):
 
   def create_agent(self, system: System) -> Agent:
     """Create Winston agent instance."""
-    config_path = Path(
-      "examples/ch03/config/agents/winston.json"
+    config = AgentConfig.from_yaml(
+      "examples/ch03/config/agents/winston.yaml"
     )
-    config = AgentConfig.model_validate_json(
-      config_path.read_text()
-    )
-
     return Winston(system=system, config=config)
 
 

@@ -1,9 +1,11 @@
 """Core agent interfaces and base implementation."""
 
-import logging
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, AsyncIterator, cast
 
+import yaml
 from litellm import acompletion
 from litellm.types.completion import (
   ChatCompletionMessageParam,
@@ -15,6 +17,7 @@ from litellm.types.utils import (
   StreamingChoices,
 )
 from litellm.utils import CustomStreamWrapper
+from loguru import logger
 from pydantic import BaseModel
 
 from winston.core.messages import Message, Response
@@ -23,8 +26,6 @@ from winston.core.protocols import Agent, System
 from winston.core.tools import (
   ToolManager,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class AgentConfig(BaseModel):
@@ -37,6 +38,64 @@ class AgentConfig(BaseModel):
   stream: bool = True
   max_retries: int = 3
   timeout: float = 30.0
+
+  @classmethod
+  def from_yaml(
+    cls, path: str | Path
+  ) -> "AgentConfig":
+    """Load configuration from a YAML file.
+
+    Parameters
+    ----------
+    path : str | Path
+        Path to the YAML configuration file
+
+    Returns
+    -------
+    AgentConfig
+        Loaded and validated configuration
+
+    Raises
+    ------
+    FileNotFoundError
+        If the configuration file doesn't exist
+    ValueError
+        If the configuration is invalid
+    """
+    path = Path(path)
+    with path.open() as f:
+      config_data = yaml.safe_load(f)
+
+    return cls.model_validate(config_data)
+
+  @classmethod
+  def from_json(
+    cls, path: str | Path
+  ) -> "AgentConfig":
+    """Load configuration from a JSON file.
+
+    Parameters
+    ----------
+    path : str | Path
+        Path to the JSON configuration file
+
+    Returns
+    -------
+    AgentConfig
+        Loaded and validated configuration
+
+    Raises
+    ------
+    FileNotFoundError
+        If the configuration file doesn't exist
+    ValueError
+        If the configuration is invalid
+    """
+    path = Path(path)
+    with path.open() as f:
+      config_data = json.load(f)
+
+    return cls.model_validate(config_data)
 
 
 @dataclass
@@ -146,17 +205,21 @@ class BaseAgent(Agent):
 
     if self.config.system_prompt:
       messages.append(
-        {
-          "role": "system",
-          "content": self.config.system_prompt,
-        }
+        Message.system(
+          self.config.system_prompt
+        ).to_chat_completion_message()
       )
 
     if history := message.context.get("history", []):
-      messages.extend(history)
+      messages.extend(
+        Message.from_history(
+          msg
+        ).to_chat_completion_message()
+        for msg in history
+      )
 
     messages.append(
-      {"role": "user", "content": str(message.content)}
+      message.to_chat_completion_message()
     )
 
     return messages

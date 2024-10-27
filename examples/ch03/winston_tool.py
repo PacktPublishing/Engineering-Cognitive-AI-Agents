@@ -1,7 +1,5 @@
 """Winston chat implementation with tool support."""
 
-from pathlib import Path
-
 from winston.core.agent import AgentConfig, BaseAgent
 from winston.core.protocols import Agent, System
 from winston.core.tools import Tool
@@ -48,13 +46,9 @@ class ToolEnabledWinstonChat(AgentChat):
     Agent
         The Winston agent instance with tool support.
     """
-    config_path = Path(
-      "examples/ch03/config/agents/winston.json"
+    config = AgentConfig.from_yaml(
+      "examples/ch03/config/agents/winston.yaml"
     )
-    config = AgentConfig.model_validate_json(
-      config_path.read_text()
-    )
-
     return ToolEnabledWinston(
       system=system,
       config=config,

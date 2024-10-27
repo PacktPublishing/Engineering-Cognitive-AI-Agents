@@ -2,7 +2,6 @@
 Core tool system providing type-safe function registration and execution.
 """
 
-import logging
 from typing import (
   Any,
   Awaitable,
@@ -12,12 +11,11 @@ from typing import (
 )
 
 import openai
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from winston.core.messages import Response
 from winston.core.protocols import System
-
-logger = logging.getLogger(__name__)
 
 # Type variable for tool return types
 T = TypeVar("T", bound=BaseModel)

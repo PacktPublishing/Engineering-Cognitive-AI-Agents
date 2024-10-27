@@ -5,6 +5,7 @@ from typing import cast
 
 import chainlit as cl
 
+from winston.core.messages import Message, Response
 from winston.core.protocols import Agent, System
 from winston.core.system import AgentSystem
 
@@ -85,12 +86,17 @@ class AgentChat:
       list[dict[str, str]],
       cl.user_session.get("history", []),
     )
+
+    user_message = Message(content=message.content)
+    assistant_message = Response(content=msg.content)
+
     history.extend(
       [
-        {"role": "user", "content": message.content},
-        {"role": "assistant", "content": msg.content},
+        user_message.to_history_format(),
+        assistant_message.to_history_format(),
       ]
     )
+
     cl.user_session.set("history", history)  # type: ignore
 
   def create_agent(
