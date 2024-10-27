@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, cast
 
+import litellm
 import yaml
 from litellm import acompletion
 from litellm.types.completion import (
@@ -21,10 +22,16 @@ from loguru import logger
 from pydantic import BaseModel
 
 from winston.core.messages import Message, Response
-from winston.core.protocols import Agent, System
+from winston.core.protocols import (
+  Agent,
+  MessagePattern,
+  System,
+)
 from winston.core.tools import (
   ToolManager,
 )
+
+litellm.set_verbose = True
 
 
 class AgentConfig(BaseModel):
@@ -134,18 +141,20 @@ class BaseAgent(Agent):
   ) -> AsyncIterator[Response]:
     """Process an incoming message."""
     try:
-      pattern = message.metadata.get(
-        "pattern", "conversation"
+      pattern = MessagePattern(
+        message.metadata.get(
+          "pattern", MessagePattern.CONVERSATION
+        )
       )
 
-      if pattern == "conversation":
+      if pattern == MessagePattern.CONVERSATION:
         async for (
           response
         ) in self._handle_conversation(message):
           yield response
-      elif pattern == "function":
+      elif pattern == MessagePattern.FUNCTION:
         yield await self._handle_function(message)
-      elif pattern == "event":
+      elif pattern == MessagePattern.EVENT:
         yield await self._handle_event(message)
       else:
         raise ValueError(f"Unknown pattern: {pattern}")
@@ -243,6 +252,7 @@ class BaseAgent(Agent):
         and choices["finish_reason"] == "tool_calls"
         and tool_calls
       ):
+        results = []
         for tool_call in tool_calls:
           result = (
             await self.tool_manager.execute_tool(
@@ -254,6 +264,20 @@ class BaseAgent(Agent):
               }
             )
           )
+          results.append(result)
+
+          # Update the last response with the tool call result
+          if formatted_response := result.metadata.get(
+            "formatted_response"
+          ):
+            self.state.last_response = (
+              formatted_response
+            )
+          else:
+            self.state.last_response = result.content
+
+        # Yield all results
+        for result in results:
           yield result
         return
 

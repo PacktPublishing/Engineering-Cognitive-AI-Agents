@@ -44,7 +44,7 @@ class Message(BaseModel):
     """
     role = self.metadata.get("role", MessageRole.USER)
     return {
-      "role": role,
+      "role": str(role),
       "content": str(self.content),
     }
 
@@ -80,7 +80,7 @@ class Message(BaseModel):
     """
     role = self.metadata.get("role", MessageRole.USER)
     return {
-      "role": role,
+      "role": str(role),
       "content": str(self.content),
     }
 
@@ -145,6 +145,6 @@ class Response(BaseModel):
         Response in history format
     """
     return {
-      "role": MessageRole.ASSISTANT,
+      "role": str(MessageRole.ASSISTANT),
       "content": str(self.content),
     }

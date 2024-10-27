@@ -42,6 +42,10 @@ class Tool(BaseModel, Generic[T]):
     ...,
     description="Pydantic model defining the return type",
   )
+  format_response: Callable[[T], str] | None = Field(
+    default=None,
+    description="Optional function to format tool result for user display",
+  )
 
   def to_openai_schema(self) -> dict[str, Any]:
     """Convert tool to OpenAI function format using official helper."""
@@ -109,9 +113,21 @@ class ToolManager:
           f"Handler returned {type(result)}, expected {tool.output_model}"
         )
 
+      # Format the response if a formatter is provided
+      formatted_response = None
+      if tool.format_response:
+        formatted_response = tool.format_response(
+          result
+        )
+
       return Response(
         content=result.model_dump_json(),
-        metadata={"tool_call": True},
+        metadata={
+          "tool_call": True,
+          "tool_name": tool_name,
+          "tool_args": function_call["arguments"],
+          "formatted_response": formatted_response,
+        },
       )
 
     except Exception as e:

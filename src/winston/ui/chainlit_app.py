@@ -63,12 +63,15 @@ class AgentChat:
       cl.user_session.get("agent_id"),
     )
 
-    # Create streaming message
-    msg = cl.Message(content="")
-    await msg.send()
-
     # Get history in proper format
     history = cl.user_session.get("history", [])
+
+    # Track if we've created the response message
+    msg: cl.Message | None = None
+    accumulated_content: list[str] = []
+    tool_responses: list[
+      str
+    ] = []  # Track tool responses
 
     # Stream response
     async for response in system.invoke_conversation(
@@ -76,19 +79,57 @@ class AgentChat:
       message.content,
       context={"history": history},
     ):
-      await msg.stream_token(response.content)
+      if response.metadata.get("tool_call"):
+        # Create a tool execution step
+        async with cl.Step(
+          name=response.metadata["tool_name"],
+          type="tool",
+          show_input=True,
+        ) as step:
+          step.input = response.metadata["tool_args"]
+          step.output = response.content
 
-    # Update message
-    await msg.update()
+          # If there's a formatted response, create a message and track it
+          if (
+            formatted_response
+            := response.metadata.get(
+              "formatted_response"
+            )
+          ):
+            tool_responses.append(formatted_response)
+            msg = cl.Message(
+              content=formatted_response
+            )
+            await msg.send()
+      else:
+        # Create message if this is first content
+        if msg is None:
+          msg = cl.Message(content="")
+          await msg.send()
 
-    # Update history
+        accumulated_content.append(response.content)
+        await msg.stream_token(response.content)
+
+    # Update final message if we created one
+    if msg is not None:
+      await msg.update()
+
+    # Update history with both user message and response
     history = cast(
       list[dict[str, str]],
       cl.user_session.get("history", []),
     )
 
     user_message = Message(content=message.content)
-    assistant_message = Response(content=msg.content)
+    # Include tool responses in the assistant's message if any
+    assistant_content = (
+      " ".join(tool_responses)
+      if tool_responses
+      else "".join(accumulated_content)
+    )
+    assistant_message = Response(
+      content=assistant_content
+    )
 
     history.extend(
       [

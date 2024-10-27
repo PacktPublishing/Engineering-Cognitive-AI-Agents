@@ -3,7 +3,11 @@
 from typing import Any, AsyncIterator
 
 from winston.core.messages import Message, Response
-from winston.core.protocols import Agent, System
+from winston.core.protocols import (
+  Agent,
+  MessagePattern,
+  System,
+)
 from winston.core.tools import Tool
 
 
@@ -128,7 +132,9 @@ class AgentSystem(System):
     """
     message = Message(
       content=content,
-      metadata={"pattern": "conversation"},
+      metadata={
+        "pattern": MessagePattern.CONVERSATION
+      },
       context=context,
     )
     async for response in self.route_message(
@@ -179,7 +185,7 @@ class AgentSystem(System):
         "args": args,
       },
       metadata={
-        "pattern": "function",
+        "pattern": MessagePattern.FUNCTION,
         "schema": tool.parameters,
       },
     )
@@ -212,7 +218,7 @@ class AgentSystem(System):
       message = Message(
         content=data,
         metadata={
-          "pattern": "event",
+          "pattern": MessagePattern.EVENT,
           "event_type": event_type,
         },
       )

@@ -2,6 +2,7 @@
 
 from abc import abstractmethod
 from collections.abc import AsyncIterator
+from enum import StrEnum
 from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel
@@ -9,6 +10,14 @@ from pydantic import BaseModel
 from winston.core.messages import Message, Response
 
 T = TypeVar("T", bound=BaseModel)
+
+
+class MessagePattern(StrEnum):
+  """Valid message patterns."""
+
+  CONVERSATION = "conversation"
+  FUNCTION = "function"
+  EVENT = "event"
 
 
 class Tool(Protocol, Generic[T]):

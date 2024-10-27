@@ -47,6 +47,33 @@ class WeatherResponse(BaseModel):
   )
 
 
+def format_weather_response(
+  result: WeatherResponse,
+) -> str:
+  """Format weather response for user display.
+
+  Parameters
+  ----------
+  result : WeatherResponse
+    The weather data to format
+
+  Returns
+  -------
+  str
+    Formatted weather information
+  """
+  unit_symbol = (
+    "°F" if result.unit == Unit.FAHRENHEIT else "°C"
+  )
+  forecast_text = ", ".join(result.forecast)
+
+  return (
+    f"The current temperature in {result.location} is "
+    f"{result.temperature}{unit_symbol}. "
+    f"Forecast: {forecast_text}."
+  )
+
+
 async def get_weather(
   params: WeatherRequest,
 ) -> WeatherResponse:
@@ -60,11 +87,12 @@ async def get_weather(
   )
 
 
-# Create tool instance
+# Create tool instance with formatter
 weather_tool = Tool(
   name="get_current_weather",
   description="Get the current weather and forecast for a location",
   handler=get_weather,
   input_model=WeatherRequest,
   output_model=WeatherResponse,
+  format_response=format_weather_response,
 )
