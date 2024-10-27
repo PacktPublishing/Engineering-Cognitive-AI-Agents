@@ -1,76 +1,44 @@
-# examples/ch03/custom.py
-import json
+"""Winston chat implementation with Chainlit."""
+
 from pathlib import Path
 
-from winston.core.agent import AgentConfig
-from winston.core.behavior import (
-  Behavior,
-  BehaviorType,
-)
-from winston.core.models import ModelType
+from winston.core.agent import AgentConfig, BaseAgent
+from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
 
 
+class Winston(BaseAgent):
+  """Winston agent implementation."""
+
+  def __init__(
+    self, system: System, config: AgentConfig
+  ) -> None:
+    """Initialize Winston agent.
+
+    Parameters
+    ----------
+    system : System
+        The system instance.
+    config : AgentConfig
+        The agent configuration.
+    """
+    super().__init__(system=system, config=config)
+
+
 class WinstonChat(AgentChat):
-  def load_config(self) -> AgentConfig:
-    """
-    Load custom configuration.
+  """Winston chat interface implementation."""
 
-    Returns
-    -------
-    AgentConfig
-        Configuration for the Winston agent.
-    """
-    # Load custom configuration
-    config_path = (
-      Path(__file__).parent
-      / "config"
-      / "agents"
-      / "winston.json"
+  def create_agent(self, system: System) -> Agent:
+    """Create Winston agent instance."""
+    config_path = Path(
+      "examples/ch03/config/agents/winston.json"
     )
-    with open(config_path) as f:
-      config_data = json.load(f)
-
-    # Ensure conversation behavior exists
-    behaviors = config_data.get("behaviors", [])
-    if not any(
-      b.get("type") == BehaviorType.CONVERSATION
-      for b in behaviors
-    ):
-      behaviors.append(
-        {
-          "type": BehaviorType.CONVERSATION,
-          "model": "gpt-4o-mini",
-          "temperature": 0.7,
-          "stream": True,
-        }
-      )
-
-    # Convert behaviors to Behavior objects
-    behaviors = [
-      Behavior(
-        type=BehaviorType(
-          behavior.get("type", "conversation")
-        ),
-        model=ModelType(
-          behavior.get("model", "gpt-4o-mini")
-        ),
-        temperature=behavior.get("temperature", 0.7),
-        stream=behavior.get("stream", True),
-        tool_ids=None,
-      )
-      for behavior in behaviors
-    ]
-
-    # Create AgentConfig with properly instantiated Behavior objects
-    return AgentConfig(
-      id=config_data["id"],
-      type=config_data["type"],
-      capabilities=set(config_data["capabilities"]),
-      behaviors=behaviors,
-      prompts=config_data.get("prompts", {}),
+    config = AgentConfig.model_validate_json(
+      config_path.read_text()
     )
 
+    return Winston(system=system, config=config)
 
-# Create the application with custom configuration
+
+# Create the application
 app = WinstonChat()

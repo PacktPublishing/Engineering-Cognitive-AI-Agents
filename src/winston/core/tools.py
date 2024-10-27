@@ -1,140 +1,217 @@
-# src/winston/core/tools.py
+"""
+Core tool system providing type-safe function registration and execution.
+"""
+
+import json
+import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Generic, TypeVar
+from typing import (
+  Any,
+  Awaitable,
+  Callable,
+  TypeVar,
+)
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 
+from winston.core.messages import Response
+from winston.core.protocols import System, Tool
 
-class ModelType(str, Enum):
-  """Supported model types."""
+logger = logging.getLogger(__name__)
 
-  GPT4O_MINI = "gpt-4o-mini"
-
-
-class ToolParameter(BaseModel):
-  """Enhanced tool parameter validation."""
-
-  type: str = Field(
-    ...,
-    pattern="^(string|number|boolean|array|object)$",
-  )
-  description: str | None = Field(None, min_length=1)
-  enum: list[str] | None = None
-
-  @field_validator("enum")
-  @classmethod
-  def validate_enum(
-    cls,
-    v: list[str] | None,
-    info: Any,
-  ) -> list[str] | None:
-    """Validate enum values are only used with string type."""
-    if v and info.data.get("type") != "string":
-      raise ValueError(
-        "Enum can only be used with string type"
-      )
-    return v
-
-
-class ToolSchema(BaseModel):
-  """Tool schema with enhanced validation."""
-
-  type: str = "object"
-  properties: dict[str, ToolParameter]
-  required: list[str] = Field(default_factory=list)
-
-
+# Type variable for tool return types
 T = TypeVar("T", bound=BaseModel)
 
 
-class ToolResult(BaseModel, Generic[T]):
-  """Generic result type for tool executions."""
+class ToolParameterType(str, Enum):
+  """Valid parameter types for tools."""
 
-  success: bool
-  data: T | None = None
-  error: str | None = None
-  metadata: dict[str, Any] = Field(
-    default_factory=dict
-  )
+  STRING = "string"
+  NUMBER = "number"
+  INTEGER = "integer"
+  BOOLEAN = "boolean"
+  ARRAY = "array"
+  OBJECT = "object"
+
+
+class ToolError(Exception):
+  """Base exception for tool-related errors"""
+
+  pass
+
+
+class ToolValidationError(ToolError):
+  """Raised when tool inputs or outputs fail validation"""
+
+  pass
+
+
+class ToolExecutionError(ToolError):
+  """Raised when a tool fails during execution"""
+
+  pass
 
 
 @dataclass
-class Tool:
-  """Configuration for a tool/function that can be called by the agent."""
+class ParameterSchema:
+  """Schema for a single tool parameter"""
 
+  type: ToolParameterType
+  description: str
+  required: bool = False
+  enum: list[str] | None = None
+  default: Any | None = None
+
+
+@dataclass
+class ToolSchema(BaseModel):
   name: str
   description: str
-  parameters: ToolSchema
-  handler: Callable[..., Any]
+  parameters: dict[str, dict[str, Any]]
 
 
-class ToolRegistry:
-  """
-  Central registry for tool definitions.
+class ToolImpl(Tool[T]):
+  """Implementation of Tool protocol."""
 
-  This is a singleton class that maintains a global registry of tools
-  that can be used by agents.
+  def __init__(
+    self,
+    name: str,
+    description: str,
+    parameters: dict[str, ParameterSchema],
+    required_params: list[str],
+    return_type: type[T],
+    handler: Callable[..., Awaitable[T]],
+  ):
+    self.name = name
+    self.description = description
+    self.parameters = parameters
+    self.required_params = required_params
+    self.return_type = return_type
+    self.handler = handler
 
-  Attributes
-  ----------
-  tools : dict[str, Tool]
-      Dictionary mapping tool names to Tool instances.
-  """
+  async def execute(self, **kwargs: Any) -> T:
+    """Execute the tool with validation."""
+    try:
+      # Validate inputs
+      missing = [
+        p
+        for p in self.required_params
+        if p not in kwargs
+      ]
+      if missing:
+        raise ToolValidationError(
+          f"Missing required parameters: {missing}"
+        )
 
-  _instance: Any = None
-  tools: dict[str, Tool] = {}
+      # Execute handler
+      result = await self.handler(**kwargs)
 
-  def __new__(cls) -> "ToolRegistry":
-    """Ensure singleton instance."""
-    if not cls._instance:
-      cls._instance = super().__new__(cls)
-      cls._instance.tools = {}
-    return cls._instance
+      # Validate output
+      if not isinstance(result, self.return_type):
+        raise ToolValidationError(
+          f"Invalid return type. Expected {self.return_type}"
+        )
 
-  def register(self, tool: Tool) -> None:
-    """
-    Register a tool in the registry.
+      return result
 
-    Parameters
-    ----------
-    tool : Tool
-        The tool to register.
-    """
-    self.tools[tool.name] = tool
+    except ToolValidationError:
+      logger.error(
+        "Tool validation error", exc_info=True
+      )
+      raise
+    except Exception as e:
+      logger.error(
+        "Tool execution error", exc_info=True
+      )
+      raise ToolExecutionError(str(e)) from e
 
-  def get_tool(self, tool_id: str) -> Tool | None:
-    """
-    Get a tool by its ID (name).
 
-    Parameters
-    ----------
-    tool_id : str
-        The ID (name) of the tool to retrieve.
+def create_tool(
+  name: str,
+  description: str,
+  parameters: dict[str, ParameterSchema],
+  handler: Callable[..., Awaitable[T]],
+  required_params: list[str],
+  return_type: type[T],
+) -> Tool[T]:
+  """Create a new tool instance."""
+  return ToolImpl(
+    name=name,
+    description=description,
+    parameters=parameters,
+    handler=handler,
+    required_params=required_params,
+    return_type=return_type,
+  )
 
-    Returns
-    -------
-    Tool | None
-        The requested tool, or None if not found.
-    """
-    return self.tools.get(tool_id)
 
-  def get_tools(
-    self, tool_ids: list[str]
-  ) -> list[Tool]:
-    """
-    Get multiple tools by their IDs.
+class ToolManager:
+  """Manages tool registration and execution."""
 
-    Parameters
-    ----------
-    tool_ids : list[str]
-        List of tool IDs to retrieve.
+  def __init__(self, system: System, agent_id: str):
+    self.system = system
+    self.agent_id = agent_id
 
-    Returns
-    -------
-    list[Tool]
-        List of found tools. Skips any IDs that aren't found.
-    """
+  def get_tools_schema(self) -> list[dict[str, Any]]:
+    """Convert tools to OpenAI format."""
+    if not self.system:
+      return []
+
+    agent_tools = self.system.get_agent_tools(
+      self.agent_id
+    )
     return [
-      t for id in tool_ids if (t := self.tools.get(id))
+      {
+        "type": "function",
+        "function": {
+          "name": tool.name,
+          "description": tool.description,
+          "parameters": {
+            "type": "object",
+            "properties": {
+              name: {
+                "type": param.type.value,
+                "description": param.description,
+                **(
+                  {"enum": param.enum}
+                  if param.enum
+                  else {}
+                ),
+                **(
+                  {"default": param.default}
+                  if param.default is not None
+                  else {}
+                ),
+              }
+              for name, param in tool.parameters.items()
+            },
+            "required": tool.required_params,
+          },
+        },
+      }
+      for tool in agent_tools.values()
     ]
+
+  async def execute_tool(
+    self, function_call: dict[str, Any]
+  ) -> Response:
+    """Execute a tool call."""
+    try:
+      tool = self.system.get_agent_tools(
+        self.agent_id
+      )[function_call["name"]]
+      args = json.loads(function_call["arguments"])
+      result = await tool.execute(**args)
+      return Response(
+        content=result.model_dump_json(),
+      )
+    except Exception as e:
+      logger.error(
+        f"Tool execution error: {str(e)}",
+        exc_info=True,
+      )
+      return Response(
+        content=f"Error executing function: {str(e)}",
+        metadata={"error": True},
+      )

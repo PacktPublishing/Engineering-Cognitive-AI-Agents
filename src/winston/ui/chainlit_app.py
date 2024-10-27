@@ -1,30 +1,22 @@
 # src/winston/ui/chainlit_app.py
+"""Chainlit integration for generic agent chat interface."""
+
 from typing import cast
 
 import chainlit as cl
 
-from winston.agents.base import (
-  Agent,
-  AgentConfig,
-)
-from winston.core.messages import (
-  CommunicationType,
-  Message,
-  MessageContent,
-)
-from winston.core.registry import (
-  AgentRegistry,  # Fix the import
-)
+from winston.core.protocols import Agent, System
+from winston.core.system import AgentSystem
 
 
 class AgentChat:
-  """Chainlit-based chat interface for an agent."""
+  """Generic Chainlit-based chat interface for any agent."""
 
   def __init__(self) -> None:
     """
-    Initialize AgentChat with registry and register Chainlit handlers.
+    Initialize AgentChat with system and register Chainlit handlers.
     """
-    self.registry = AgentRegistry()
+    self.system = AgentSystem()
 
     # Register class methods as Chainlit handlers
     cl.on_chat_start(self.start)
@@ -36,13 +28,12 @@ class AgentChat:
 
     Creates and registers an agent instance and initializes the chat history.
     """
-    config = self.load_config()
-    agent = Agent(config)
-    await self.registry.register(agent)
+    agent = self.create_agent(self.system)
+    self.system.register_agent(agent)
 
-    # Store registry and agent_id in session
-    cl.user_session.set("registry", self.registry)  # type: ignore
-    cl.user_session.set("agent_id", config.id)  # type: ignore
+    # Store system and agent_id in session
+    cl.user_session.set("system", self.system)  # type: ignore
+    cl.user_session.set("agent_id", agent.id)  # type: ignore
     cl.user_session.set("history", [])  # type: ignore
 
   async def handle_message(
@@ -60,22 +51,16 @@ class AgentChat:
     Raises
     ------
     ValueError
-        If Winston agent is not found in registry.
+        If agent is not found in system.
     """
-    registry: AgentRegistry = cast(
-      AgentRegistry,
-      cl.user_session.get("registry"),
+    system: AgentSystem = cast(
+      AgentSystem,
+      cl.user_session.get("system"),
     )
     agent_id: str = cast(
       str,
       cl.user_session.get("agent_id"),
     )
-
-    agent = await registry.get_agent(agent_id)
-    if agent is None:
-      raise ValueError(
-        f"Agent with id {agent_id} not found"
-      )
 
     # Create streaming message
     msg = cl.Message(content="")
@@ -84,30 +69,21 @@ class AgentChat:
     # Get history in proper format
     history = cl.user_session.get("history", [])
 
-    # Create Winston message with proper MessageContent
-    winston_message = Message(
-      sender_id="user",
-      recipient_id=agent.id,
-      type=CommunicationType.CONVERSATION,
-      content=MessageContent(
-        text=message.content
-      ),  # Create MessageContent object
-      context={"history": history},
-    )
-
     # Stream response
-    async for response_chunk in agent.handle_message(
-      winston_message
+    async for response in system.invoke_conversation(
+      agent_id,
+      message.content,
+      context={"history": history},
     ):
-      await msg.stream_token(response_chunk)
+      await msg.stream_token(response.content)
 
     # Update message
     await msg.update()
 
     # Update history
-    history: list[dict[str, str]] = cast(
+    history = cast(
       list[dict[str, str]],
-      cl.user_session.get("history", []),  # type: ignore
+      cl.user_session.get("history", []),
     )
     history.extend(
       [
@@ -117,15 +93,23 @@ class AgentChat:
     )
     cl.user_session.set("history", history)  # type: ignore
 
-  def load_config(self) -> AgentConfig:
+  def create_agent(
+    self,
+    system: System,
+  ) -> Agent:
     """
-    Load agent configuration.
+    Create the agent instance.
 
     Returns
     -------
-    AgentConfig
-        Configuration for the agent.
+    Agent
+        The agent instance to use for chat.
+
+    Raises
+    ------
+    NotImplementedError
+        This method must be implemented by subclasses.
     """
     raise NotImplementedError(
-      "Subclasses must implement load_config method"
+      "Subclasses must implement create_agent method"
     )

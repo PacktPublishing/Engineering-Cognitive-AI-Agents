@@ -1,56 +1,42 @@
-# src/winston/agents/base.py
-import json
+"""Core agent interfaces and base implementation."""
+
+import logging
 from dataclasses import dataclass, field
-from typing import (
-  Any,
-  AsyncIterator,
-)
+from typing import Any, AsyncIterator, cast
 
 from litellm import acompletion
 from litellm.types.completion import (
   ChatCompletionMessageParam,
 )
-from pydantic import BaseModel, field_validator
+from litellm.types.utils import (
+  ChatCompletionDeltaToolCall,
+  Function,
+  ModelResponse,
+  StreamingChoices,
+)
+from litellm.utils import CustomStreamWrapper
+from pydantic import BaseModel
 
-from winston.core.behavior import (
-  Behavior,
-  BehaviorType,
-)
-from winston.core.messages import (
-  CommunicationType,
-  Message,
-  MessageContent,
-)
+from winston.core.messages import Message, Response
+from winston.core.models import ModelType
+from winston.core.protocols import Agent, System
 from winston.core.tools import (
-  Tool,
-  ToolRegistry,
+  ToolManager,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AgentConfig(BaseModel):
   """Enhanced agent configuration with validation."""
 
   id: str
-  type: str
-  capabilities: set[str]
-  behaviors: list[Behavior]
-  prompts: dict[str, str]
-
-  @field_validator("behaviors")
-  @classmethod
-  def validate_behaviors(
-    cls,
-    v: list[Behavior],
-  ) -> list[Behavior]:
-    """Validate behavior types are unique."""
-    types: set[BehaviorType] = set()
-    for behavior in v:
-      if behavior.type in types:
-        raise ValueError(
-          f"Duplicate behavior type: {behavior.type}"
-        )
-      types.add(behavior.type)
-    return v
+  model: ModelType = ModelType.GPT4O_MINI
+  system_prompt: str | None = None
+  temperature: float = 0.7
+  stream: bool = True
+  max_retries: int = 3
+  timeout: float = 30.0
 
 
 @dataclass
@@ -60,343 +46,269 @@ class AgentState:
   last_response: str | None = None
   last_error: str | None = None
   context: dict[str, Any] = field(default_factory=dict)
+  tool_calls: dict[str, Any] = field(
+    default_factory=dict
+  )
 
 
-class Agent:
-  """Base agent class supporting configuration-driven behavior."""
+class BaseAgent(Agent):
+  """Base agent implementation with LLM support."""
 
   def __init__(
     self,
+    system: System,
     config: AgentConfig,
   ) -> None:
     """Initialize an Agent instance."""
-    self.id = config.id
-    self.type = config.type
-    self.capabilities = config.capabilities
-    self.behaviors: dict[str, Behavior] = {}
-
-    # Initialize behaviors
-    for behavior in config.behaviors:
-      behavior_config = Behavior(
-        name=behavior.name,
-        type=behavior.type,
-        model=behavior.model,
-        temperature=behavior.temperature,
-        stream=behavior.stream,
-        tool_ids=behavior.tool_ids,
-      )
-      self.behaviors[behavior.name] = behavior_config
-
-    self.prompts = config.prompts
+    self.system = system
+    self.config = config
     self.state = AgentState()
+    self.tool_manager = ToolManager(system, config.id)
 
-  async def _handle_function_call(
+  @property
+  def id(self) -> str:
+    """Get the agent ID."""
+    return self.config.id
+
+  async def process(
     self,
-    behavior: Behavior,
-    function_name: str,
-    arguments: str,
-  ) -> str:
-    """Handle function calls from LLM."""
+    message: Message,
+  ) -> AsyncIterator[Response]:
+    """Process an incoming message."""
     try:
-      args = json.loads(arguments)
-      tool_registry = ToolRegistry()
-      tool = tool_registry.get_tool(function_name)
+      pattern = message.metadata.get(
+        "pattern", "conversation"
+      )
 
-      if not tool:
-        raise ValueError(
-          f"Tool {function_name} not found"
+      if pattern == "conversation":
+        async for (
+          response
+        ) in self._handle_conversation(message):
+          yield response
+      elif pattern == "function":
+        yield await self._handle_function(message)
+      elif pattern == "event":
+        yield await self._handle_event(message)
+      else:
+        raise ValueError(f"Unknown pattern: {pattern}")
+
+    except Exception as e:
+      logger.error(
+        "Error processing message", exc_info=True
+      )
+      yield Response(
+        content=f"Error processing message: {str(e)}",
+        metadata={"error": True},
+      )
+
+  async def _handle_conversation(
+    self,
+    message: Message,
+  ) -> AsyncIterator[Response]:
+    """Handle conversation with LLM integration."""
+    messages = self._prepare_messages(message)
+    tools = self.tool_manager.get_tools_schema()
+    print(tools)
+    try:
+      response = await acompletion(
+        model=self.config.model.value,
+        messages=messages,
+        temperature=self.config.temperature,
+        stream=self.config.stream,
+        tools=tools if tools else None,
+        timeout=self.config.timeout,
+      )
+
+      if self.config.stream:
+        async for (
+          chunk
+        ) in self._process_streaming_response(
+          cast(CustomStreamWrapper, response)
+        ):
+          yield chunk
+      else:
+        yield await self._process_single_response(
+          cast(ModelResponse, response)
         )
 
-      result = await tool.handler(**args)
-
-      # Convert Pydantic model to dict before JSON serialization
-      if hasattr(result, "model_dump"):
-        result_dict = result.model_dump()
-      else:
-        result_dict = result
-
-      return json.dumps(result_dict)
     except Exception as e:
-      error_response = {"error": str(e)}
-      return json.dumps(error_response)
+      logger.error("LLM error", exc_info=True)
+      yield Response(
+        content=f"Error generating response: {str(e)}",
+        metadata={"error": True},
+      )
 
-  async def _execute_behavior(
-    self,
-    behavior: Behavior,
-    message: Message,
-  ) -> AsyncIterator[str]:
-    """Execute a behavior using the configured LLM."""
+  def _prepare_messages(
+    self, message: Message
+  ) -> list[ChatCompletionMessageParam]:
+    """Prepare messages for LLM."""
     messages: list[ChatCompletionMessageParam] = []
 
-    if system_prompt := self.prompts.get("system"):
+    if self.config.system_prompt:
       messages.append(
-        {"role": "system", "content": system_prompt}
+        {
+          "role": "system",
+          "content": self.config.system_prompt,
+        }
       )
 
-    # Convert history messages to proper format
     if history := message.context.get("history", []):
-      for msg in history:
-        messages.append(
-          {
-            "role": str(msg.get("role")),  # type: ignore
-            "content": str(msg.get("content")),
-          }
+      messages.extend(history)
+
+    messages.append(
+      {"role": "user", "content": str(message.content)}
+    )
+
+    return messages
+
+  async def _process_streaming_response(
+    self,
+    response: CustomStreamWrapper,
+  ) -> AsyncIterator[Response]:
+    """Process streaming LLM response."""
+    tool_calls: list[ChatCompletionDeltaToolCall] = []
+    accumulated_content: str = ""
+
+    async for chunk in response:
+      choices_list = cast(
+        list[StreamingChoices],
+        chunk["choices"],
+      )
+      choices: StreamingChoices = choices_list[0]
+
+      # Handle tool calls completion
+      if (
+        hasattr(choices, "finish_reason")
+        and choices["finish_reason"] == "tool_calls"
+        and tool_calls
+      ):
+        for tool_call in tool_calls:
+          result = (
+            await self.tool_manager.execute_tool(
+              {
+                "name": tool_call.function["name"],
+                "arguments": tool_call.function[
+                  "arguments"
+                ],
+              }
+            )
+          )
+          yield result
+        return
+
+      delta = choices.delta
+      if delta.tool_calls:
+        for tool_call in cast(
+          list[ChatCompletionDeltaToolCall],
+          delta["tool_calls"],
+        ):
+          if len(tool_calls) <= tool_call.index:
+            assert len(tool_calls) == tool_call.index
+            tool_calls.append(
+              ChatCompletionDeltaToolCall(
+                function=Function(
+                  arguments=None,
+                ),
+                index=tool_call.index,
+              )
+            )
+
+          if tool_call.function.name:
+            tool_calls[
+              tool_call.index
+            ].function.name = tool_call.function.name
+
+          if tool_call.function.arguments:
+            tool_calls[
+              tool_call.index
+            ].function.arguments += (
+              tool_call.function.arguments
+            )
+
+      # Handle content
+      if (
+        hasattr(delta, "content")
+        and delta["content"] is not None
+      ):
+        accumulated_content += str(delta["content"])
+        yield Response(
+          content=delta["content"],
+          metadata={"streaming": True},
         )
 
-    # Add current message
-    content = (
-      message.content.text
-      if hasattr(message.content, "text")
-      else str(message.content)
-    )
-    messages.append(
-      {"role": "user", "content": content}
-    )
+    if accumulated_content:
+      self.state.last_response = accumulated_content
 
-    completion_params: dict[str, Any] = {
-      "model": behavior.model.value,
-      "messages": messages,
-      "temperature": behavior.temperature,
-      "stream": behavior.stream,
-    }
+  async def _process_single_response(
+    self, response: ModelResponse
+  ) -> Response:
+    """Process non-streaming LLM response."""
+    if not response.choices:
+      raise ValueError("No choices in response")
 
-    # Add tools if configured for this behavior
-    if behavior.tool_ids:
-      tool_registry = ToolRegistry()
-      tools: list[Tool] = []
-      for tool_id in behavior.tool_ids:
-        tool = tool_registry.get_tool(tool_id)
-        if tool is None:
-          raise ValueError(
-            f"Tool with ID '{tool_id}' not found in the tool registry"
-          )
-        tools.append(tool)
+    message = response.choices[0].message
+    if not message:
+      raise ValueError("No message in response")
 
-      functions = [
-        {
-          "name": tool.name,
-          "description": tool.description,
-          "parameters": {
-            "type": "object",
-            "properties": {
-              name: {
-                "type": param.type,
-                "description": param.description,
-                **(
-                  {"enum": param.enum}
-                  if param.enum
-                  else {}
-                ),
-              }
-              for name, param in tool.parameters.properties.items()
-            },
-            "required": tool.parameters.required,
-          },
-        }
-        for tool in tools
-      ]
-      completion_params["functions"] = functions
-
-    try:
-      response = await acompletion(**completion_params)
-
-      if behavior.stream:
-        current_function_call: (
-          dict[str, str] | None
-        ) = None
-        accumulated_content = ""
-
-        async for chunk in response:
-          if (
-            not hasattr(chunk, "choices")
-            or not chunk.choices
-          ):
-            continue
-
-          delta = chunk.choices[0].delta
-          if not delta:
-            continue
-
-          # Handle function calls
-          if (
-            hasattr(delta, "function_call")
-            and delta.function_call
-          ):
-            if current_function_call is None:
-              current_function_call = {
-                "name": delta.function_call.name,
-                "arguments": "",
-              }
-            if hasattr(
-              delta.function_call, "arguments"
-            ):
-              current_function_call["arguments"] += (
-                delta.function_call.arguments or ""
-              )
-
-          # Handle function call completion
-          if (
-            hasattr(chunk.choices[0], "finish_reason")
-            and chunk.choices[0].finish_reason
-            == "function_call"
-            and current_function_call
-          ):
-            result = await self._handle_function_call(
-              behavior,
-              current_function_call["name"],
-              current_function_call["arguments"],
-            )
-            yield result
-            return
-
-          # Handle content
-          if (
-            hasattr(delta, "content")
-            and delta.content is not None
-          ):
-            accumulated_content += delta.content
-            yield delta.content
-
-        if accumulated_content:
-          self.state.last_response = (
-            accumulated_content
-          )
-
-      else:
-        # Handle non-streaming response
-        if (
-          hasattr(response, "choices")
-          and response.choices
-          and hasattr(response.choices[0], "message")
-          and response.choices[0].message
-          and hasattr(
-            response.choices[0].message, "content"
-          )
-        ):
-          content = response.choices[0].message.content
-          if content is not None:
-            self.state.last_response = content
-            yield content
-
-    except Exception as e:
-      error_msg = f"Error executing behavior: {str(e)}"
-      self.state.last_error = error_msg
-      yield error_msg
-
-  async def emit_event(
-    self,
-    event_type: str,
-    data: dict[str, Any],
-  ) -> None:
-    """Emit system events for monitoring and coordination."""
-    message = Message(
-      sender_id=self.id,
-      recipient_id="system",
-      type=CommunicationType.EVENT,
-      content=MessageContent(
-        text=f"Event: {event_type}"
-      ),
-    )
-    async for _ in self.handle_message(message):
-      pass
-
-  async def handle_message(
-    self,
-    message: Message,
-  ) -> AsyncIterator[str]:
-    """Main entry point for message handling."""
-    behavior_name = (
-      "conversation"
-      if message.type == CommunicationType.CONVERSATION
-      else message.type.value
-    )
-
-    behavior = self.behaviors.get(behavior_name)
-    if not behavior:
-      yield (
-        f"No behavior found for message type: {message.type}. "
-        f"Available behaviors: {list(self.behaviors.keys())}"
-      )
-      return
-
-    async for response in self._execute_behavior(
-      behavior, message
+    if (
+      hasattr(message, "tool_calls")
+      and message.tool_calls
     ):
-      yield response
+      results = []
+      for tool_call in message.tool_calls:
+        result = await self.tool_manager.execute_tool(
+          {
+            "name": tool_call.function.name,
+            "arguments": tool_call.function.arguments,
+          }
+        )
+        results.append(result)
+      return Response(
+        content=str(results),
+        metadata={"tool_calls": True},
+      )
 
+    if message.content:
+      self.state.last_response = message.content
+      return Response(content=message.content)
 
-class AgentRegistry:
-  """
-  Central registry for agent discovery and management.
+    raise ValueError("No content in message")
 
-  This class provides functionality to register agents, retrieve agents by ID,
-  and find agents based on their capabilities.
+  async def _handle_function(
+    self, message: Message
+  ) -> Response:
+    """Handle function calls."""
+    if not isinstance(message.content, dict):
+      return Response(
+        content="Invalid function call format",
+        metadata={"error": True},
+      )
 
-  Attributes:
-      agents: A dictionary mapping agent IDs to Agent instances.
-      capability_index: A dictionary mapping capabilities to sets of agent IDs.
-  """
+    print(f"Executing function: {message.content}")
+    try:
+      return await self.tool_manager.execute_tool(
+        message.content
+      )
+    except Exception as e:
+      logger.error(
+        "Function execution error", exc_info=True
+      )
+      return Response(
+        content=f"Error executing function: {str(e)}",
+        metadata={"error": True},
+      )
 
-  def __init__(self) -> None:
-    self.agents: dict[str, Agent] = {}
-    self.capability_index: dict[str, set[str]] = {}
-
-  async def register(self, agent: Agent) -> None:
-    """
-    Register an agent in the registry.
-
-    This method adds the agent to the main registry and updates the capability index.
-
-    Parameters
-    ----------
-    agent : Agent
-        The agent to be registered.
-
-    Returns
-    -------
-    None
-    """
-    self.agents[agent.id] = agent
-    for capability in agent.capabilities:
-      if capability not in self.capability_index:
-        self.capability_index[capability] = set()
-      self.capability_index[capability].add(agent.id)
-
-  async def get_agent(
-    self, agent_id: str
-  ) -> Agent | None:
-    """
-    Retrieve an agent by its ID.
-
-    Parameters
-    ----------
-    agent_id : str
-        The ID of the agent to retrieve.
-
-    Returns
-    -------
-    Agent | None
-        The agent with the specified ID, or None if not found.
-    """
-    return self.agents.get(agent_id)
-
-  async def find_agents_by_capability(
-    self, capability: str
-  ) -> list[Agent]:
-    """
-    Find agents that have a specific capability.
-
-    Parameters
-    ----------
-    capability : str
-        The capability to search for.
-
-    Returns
-    -------
-    list[Agent]
-        A list of agents that have the specified capability.
-    """
-    agent_ids = self.capability_index.get(
-      capability, set()
+  async def _handle_event(
+    self, message: Message
+  ) -> Response:
+    """Handle events."""
+    event_type = message.metadata.get(
+      "event_type", "unknown"
     )
-    return [self.agents[aid] for aid in agent_ids]
+    self.state.context[f"last_{event_type}"] = (
+      message.content
+    )
+    return Response(
+      content=f"Processed event: {event_type}",
+      metadata={"event_type": event_type},
+    )

@@ -1,5 +1,3 @@
-# src/winston/tools/weather.py
-
 from pydantic import BaseModel
 
 from winston.core.tools import (
@@ -13,7 +11,7 @@ class WeatherResponse(BaseModel):
   """
   Weather information response.
 
-  Parameters
+  Attributes
   ----------
   location : str
       The location for the weather report.
@@ -48,9 +46,8 @@ async def get_current_weather(
   Returns
   -------
   WeatherResponse
-      The weather information response.
+      The weather information for the location.
   """
-  # Mock weather data - in production this would call a weather API
   return WeatherResponse(
     location=location,
     temperature="72",
@@ -59,7 +56,6 @@ async def get_current_weather(
   )
 
 
-# Create tool instance
 weather_tool = create_tool(
   name="get_current_weather",
   description="Get the current weather in a given location",

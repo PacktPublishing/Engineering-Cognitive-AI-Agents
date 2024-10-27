@@ -10,6 +10,7 @@
 - Add trailing commas to function and method arguments lists
 - Add trailing commas to lists, dictionaries, sets, tuples, etc.
 - Use numpy-style docstrings for all functions and methods
+- Prefer from collections.abc import AsyncIterator over typing.AsyncIterator
 
 # OpenAI
 - Prefer gpt-4o-mini for all LLM calls
