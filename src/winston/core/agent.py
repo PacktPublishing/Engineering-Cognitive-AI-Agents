@@ -21,7 +21,6 @@ from loguru import logger
 from pydantic import BaseModel
 
 from winston.core.messages import Message, Response
-from winston.core.models import ModelType
 from winston.core.protocols import Agent, System
 from winston.core.tools import (
   ToolManager,
@@ -32,8 +31,8 @@ class AgentConfig(BaseModel):
   """Enhanced agent configuration with validation."""
 
   id: str
-  model: ModelType = ModelType.GPT4O_MINI
-  system_prompt: str | None = None
+  model: str
+  system_prompt: str
   temperature: float = 0.7
   stream: bool = True
   max_retries: int = 3
@@ -167,10 +166,9 @@ class BaseAgent(Agent):
     """Handle conversation with LLM integration."""
     messages = self._prepare_messages(message)
     tools = self.tool_manager.get_tools_schema()
-    print(tools)
     try:
       response = await acompletion(
-        model=self.config.model.value,
+        model=self.config.model,
         messages=messages,
         temperature=self.config.temperature,
         stream=self.config.stream,
@@ -347,7 +345,6 @@ class BaseAgent(Agent):
         metadata={"error": True},
       )
 
-    print(f"Executing function: {message.content}")
     try:
       return await self.tool_manager.execute_tool(
         message.content
