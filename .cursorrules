@@ -14,3 +14,80 @@
 
 # OpenAI
 - Prefer gpt-4o-mini for all LLM calls
+- Use OpenAI's pydantic_function_tool for tools
+
+# Quick Guide: OpenAI Tools with Pydantic
+
+## Core Pattern
+1. Define request/response models with Pydantic
+2. Use OpenAI's pydantic_function_tool
+3. Let OpenAI handle parsing/validation
+
+## Basic Template
+```python
+from pydantic import BaseModel, Field
+from openai import OpenAI
+
+# 1. Define your models
+class ToolRequest(BaseModel):
+    param1: str = Field(..., description="Clear description for LLM")
+    param2: int = Field(default=0, description="Include defaults when sensible")
+
+class ToolResponse(BaseModel):
+    result: str
+    details: list[str]
+
+# 2. Define your handler
+async def tool_handler(request: ToolRequest) -> ToolResponse:
+    # Implement tool logic
+    return ToolResponse(...)
+
+# 3. Register and use
+client = OpenAI()
+completion = await client.chat.completions.create(
+    model="gpt-4-turbo-preview",
+    messages=[{"role": "user", "content": query}],
+    tools=[
+        client.pydantic_function_tool(
+            ToolRequest,
+            name="tool_name",
+            description="Tool description"
+        )
+    ]
+)
+
+# 4. Execute
+tool_call = completion.choices[0].message.tool_calls[0]
+request = tool_call.function.parsed_arguments  # Auto-parsed to ToolRequest
+response = await tool_handler(request)
+```
+
+## Key Points to Remember
+- Use Field(...) for required params
+- Use Field(default=x) for optional params
+- Let Pydantic handle validation
+- Trust OpenAI's parsing
+- Keep models focused and well-documented
+
+## Common Patterns
+```python
+# Enums for constrained choices
+class Unit(str, Enum):
+    METRIC = "metric"
+    IMPERIAL = "imperial"
+
+# Optional fields
+optional_field: Optional[str] = Field(default=None)
+
+# Lists
+items: List[str] = Field(default_factory=list)
+
+# Nested models
+class SubModel(BaseModel):
+    field: str
+
+class MainModel(BaseModel):
+    sub: SubModel
+```
+
+That's it! Keep it simple, let the tools do the work.

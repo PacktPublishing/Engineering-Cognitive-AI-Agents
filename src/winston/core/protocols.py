@@ -2,7 +2,7 @@
 
 from abc import abstractmethod
 from collections.abc import AsyncIterator
-from typing import Any, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel
 
@@ -11,18 +11,16 @@ from winston.core.messages import Message, Response
 T = TypeVar("T", bound=BaseModel)
 
 
-class Tool(Protocol[T]):
+class Tool(Protocol, Generic[T]):
   """Protocol for tool implementations."""
 
   name: str
   description: str
-  parameters: dict[str, Any]
-  required_params: list[str]
-  return_type: type[T]
+  handler: Any  # Callable[[BaseModel], T]
+  input_model: type[BaseModel]
+  output_model: type[T]
 
-  async def execute(self, **kwargs: Any) -> T:
-    """Execute the tool with the given parameters."""
-    ...
+  def to_openai_schema(self) -> dict[str, Any]: ...
 
 
 class Agent(Protocol):
@@ -34,6 +32,7 @@ class Agent(Protocol):
     """Read-only agent identifier."""
     ...
 
+  @abstractmethod
   async def process(
     self,
     message: Message,

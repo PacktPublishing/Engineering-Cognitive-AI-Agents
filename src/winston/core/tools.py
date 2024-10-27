@@ -2,21 +2,20 @@
 Core tool system providing type-safe function registration and execution.
 """
 
-import json
 import logging
-from dataclasses import dataclass
-from enum import Enum
 from typing import (
   Any,
   Awaitable,
   Callable,
+  Generic,
   TypeVar,
 )
 
-from pydantic import BaseModel
+import openai
+from pydantic import BaseModel, Field
 
 from winston.core.messages import Response
-from winston.core.protocols import System, Tool
+from winston.core.protocols import System
 
 logger = logging.getLogger(__name__)
 
@@ -24,126 +23,37 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
-class ToolParameterType(str, Enum):
-  """Valid parameter types for tools."""
+class Tool(BaseModel, Generic[T]):
+  """Tool definition using Pydantic."""
 
-  STRING = "string"
-  NUMBER = "number"
-  INTEGER = "integer"
-  BOOLEAN = "boolean"
-  ARRAY = "array"
-  OBJECT = "object"
-
-
-class ToolError(Exception):
-  """Base exception for tool-related errors"""
-
-  pass
-
-
-class ToolValidationError(ToolError):
-  """Raised when tool inputs or outputs fail validation"""
-
-  pass
-
-
-class ToolExecutionError(ToolError):
-  """Raised when a tool fails during execution"""
-
-  pass
-
-
-@dataclass
-class ParameterSchema:
-  """Schema for a single tool parameter"""
-
-  type: ToolParameterType
-  description: str
-  required: bool = False
-  enum: list[str] | None = None
-  default: Any | None = None
-
-
-@dataclass
-class ToolSchema(BaseModel):
-  name: str
-  description: str
-  parameters: dict[str, dict[str, Any]]
-
-
-class ToolImpl(Tool[T]):
-  """Implementation of Tool protocol."""
-
-  def __init__(
-    self,
-    name: str,
-    description: str,
-    parameters: dict[str, ParameterSchema],
-    required_params: list[str],
-    return_type: type[T],
-    handler: Callable[..., Awaitable[T]],
-  ):
-    self.name = name
-    self.description = description
-    self.parameters = parameters
-    self.required_params = required_params
-    self.return_type = return_type
-    self.handler = handler
-
-  async def execute(self, **kwargs: Any) -> T:
-    """Execute the tool with validation."""
-    try:
-      # Validate inputs
-      missing = [
-        p
-        for p in self.required_params
-        if p not in kwargs
-      ]
-      if missing:
-        raise ToolValidationError(
-          f"Missing required parameters: {missing}"
-        )
-
-      # Execute handler
-      result = await self.handler(**kwargs)
-
-      # Validate output
-      if not isinstance(result, self.return_type):
-        raise ToolValidationError(
-          f"Invalid return type. Expected {self.return_type}"
-        )
-
-      return result
-
-    except ToolValidationError:
-      logger.error(
-        "Tool validation error", exc_info=True
-      )
-      raise
-    except Exception as e:
-      logger.error(
-        "Tool execution error", exc_info=True
-      )
-      raise ToolExecutionError(str(e)) from e
-
-
-def create_tool(
-  name: str,
-  description: str,
-  parameters: dict[str, ParameterSchema],
-  handler: Callable[..., Awaitable[T]],
-  required_params: list[str],
-  return_type: type[T],
-) -> Tool[T]:
-  """Create a new tool instance."""
-  return ToolImpl(
-    name=name,
-    description=description,
-    parameters=parameters,
-    handler=handler,
-    required_params=required_params,
-    return_type=return_type,
+  name: str = Field(
+    ..., description="Unique name for the tool"
   )
+  description: str = Field(
+    ..., description="Clear description for the LLM"
+  )
+  handler: Callable[[Any], Awaitable[T]] = Field(
+    ...,
+    description="Async function that implements the tool logic",
+  )
+  input_model: type[BaseModel] = Field(
+    ...,
+    description="Pydantic model defining the input parameters",
+  )
+  output_model: type[T] = Field(
+    ...,
+    description="Pydantic model defining the return type",
+  )
+
+  def to_openai_schema(self) -> dict[str, Any]:
+    """Convert tool to OpenAI function format using official helper."""
+    tool_param = openai.pydantic_function_tool(
+      self.input_model,
+      name=self.name,
+      description=self.description,
+    )
+    # Convert to a regular dict
+    return dict(tool_param)
 
 
 class ToolManager:
@@ -162,50 +72,50 @@ class ToolManager:
       self.agent_id
     )
     return [
-      {
-        "type": "function",
-        "function": {
-          "name": tool.name,
-          "description": tool.description,
-          "parameters": {
-            "type": "object",
-            "properties": {
-              name: {
-                "type": param.type.value,
-                "description": param.description,
-                **(
-                  {"enum": param.enum}
-                  if param.enum
-                  else {}
-                ),
-                **(
-                  {"default": param.default}
-                  if param.default is not None
-                  else {}
-                ),
-              }
-              for name, param in tool.parameters.items()
-            },
-            "required": tool.required_params,
-          },
-        },
-      }
+      tool.to_openai_schema()
       for tool in agent_tools.values()
     ]
 
   async def execute_tool(
     self, function_call: dict[str, Any]
   ) -> Response:
-    """Execute a tool call."""
+    """Execute a tool call.
+
+    Parameters
+    ----------
+    function_call : dict[str, Any]
+        The function call parameters from OpenAI
+
+    Returns
+    -------
+    Response
+        The tool execution response
+    """
     try:
+      tool_name = function_call["name"]
       tool = self.system.get_agent_tools(
         self.agent_id
-      )[function_call["name"]]
-      args = json.loads(function_call["arguments"])
-      result = await tool.execute(**args)
+      )[tool_name]
+
+      # Parse arguments using input model
+      args = tool.input_model.model_validate_json(
+        function_call["arguments"]
+      )
+
+      # Execute handler and validate output
+      result = await tool.handler(args)
+
+      # Validate output matches expected model
+      if not isinstance(result, tool.output_model):
+        raise ValueError(
+          f"Handler returned {type(result)}, expected {tool.output_model}"
+        )
+
       return Response(
         content=result.model_dump_json(),
+        metadata={"tool_call": True},
       )
+
     except Exception as e:
       logger.error(
         f"Tool execution error: {str(e)}",
