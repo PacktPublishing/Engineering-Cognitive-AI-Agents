@@ -10,7 +10,7 @@ from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
 
 
-class CognitiveWinston(BaseAgent):
+class MemoryWinston(BaseAgent):
   """Winston with basic cognitive capabilities."""
 
   def __init__(
@@ -63,7 +63,7 @@ class CognitiveWinston(BaseAgent):
       yield response
 
 
-class CognitiveWinstonChat(AgentChat):
+class MemoryWinstonChat(AgentChat):
   """Chat interface for cognitive Winston."""
 
   def __init__(self) -> None:
@@ -75,7 +75,7 @@ class CognitiveWinstonChat(AgentChat):
     config = AgentConfig.from_yaml(
       self.paths.config / "agents/winston_memory.yaml"
     )
-    return CognitiveWinston(
+    return MemoryWinston(
       system=system,
       config=config,
       paths=self.paths,
@@ -83,4 +83,4 @@ class CognitiveWinstonChat(AgentChat):
 
 
 # Create the application
-app = CognitiveWinstonChat()
+app = MemoryWinstonChat()

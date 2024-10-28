@@ -433,3 +433,43 @@ class BaseAgent(Agent):
         content=f"Error generating response: {str(e)}",
         metadata={"error": True},
       )
+
+  async def generate_streaming_response(
+    self,
+    message: Message,
+  ) -> AsyncIterator[Response]:
+    """Generate a streaming response from the LLM.
+
+    Parameters
+    ----------
+    message : Message
+        The input message to process
+
+    Yields
+    -------
+    Response
+        Streamed responses from the LLM
+    """
+    messages = self._prepare_messages(message)
+    try:
+      response = await acompletion(
+        model=self.config.model,
+        messages=messages,
+        temperature=self.config.temperature,
+        stream=True,
+        timeout=self.config.timeout,
+      )
+
+      async for (
+        chunk
+      ) in self._process_streaming_response(
+        cast(CustomStreamWrapper, response)
+      ):
+        yield chunk
+
+    except Exception as e:
+      logger.error("LLM error", exc_info=True)
+      yield Response(
+        content=f"Error generating response: {str(e)}",
+        metadata={"error": True},
+      )

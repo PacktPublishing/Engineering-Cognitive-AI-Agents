@@ -11,6 +11,7 @@
 - User expressed interest in AI architecture.
 - User prefers detailed technical explanations.
 - User greeted with "howdy."
+- User greeted with "hello."
 
 ## Current Context
 

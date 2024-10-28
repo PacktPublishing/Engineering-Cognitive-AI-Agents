@@ -26,7 +26,7 @@ dev-dependencies = [
     "ipykernel>=6.29.5",
     "pytest>=8.3.2",
     "ruff>=0.6.5",
-    "pip>=24.2",
+    "pip>=24.3.1",
 ]
 
 [tool.ruff]
@@ -38,6 +38,9 @@ typeCheckingMode = "strict"
 verboseOutput = true
 venvPath = ".venv"
 pythonVersion = "3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "examples"]
 
 [tool.rye.scripts]
 precommit = "pre-commit run --all-files"

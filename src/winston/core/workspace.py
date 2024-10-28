@@ -56,19 +56,38 @@ class WorkspaceManager:
         The updated workspace content
     """
     workspace = self.load_workspace()
-    update_prompt = dedent(
-      f"""
-        Given this new interaction:
-        User: {message.content}
+
+    # Base prompt template
+    base_template = """
+        Given this {interaction_type}:
+        {content_format}
 
         And the current workspace:
         {workspace}
 
-        Update the workspace to include this interaction and any learned information.
-        Maintain existing sections and formatting.
-        Extract and update user preferences if any are implied.
-        Keep the workspace concise and relevant.
-      """
+        Update the workspace to incorporate this information:
+        1. Integrate key insights and relationships identified
+        2. Update relevant sections (context, preferences, etc.)
+        3. Maintain existing sections and formatting
+        4. Keep the workspace concise and well-organized
+        """
+
+    # Dynamic content formatting based on message type
+    msg_type = message.metadata.get(
+      "type", "interaction"
+    )
+    content_format = (
+      message.content
+      if msg_type != "interaction"
+      else f"User: {message.content}"
+    )
+
+    update_prompt = dedent(
+      base_template.format(
+        interaction_type=msg_type.replace("_", " "),
+        content_format=content_format,
+        workspace=workspace,
+      )
     ).strip()
 
     response = await agent.generate_response(
