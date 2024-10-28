@@ -30,7 +30,6 @@ class AgentChat:
     Creates and registers an agent instance and initializes the chat history.
     """
     agent = self.create_agent(self.system)
-    self.system.register_agent(agent)
 
     # Store system and agent_id in session
     cl.user_session.set("system", self.system)  # type: ignore

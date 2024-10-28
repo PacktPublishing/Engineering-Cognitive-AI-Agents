@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, cast
 
-import litellm
 import yaml
 from litellm import acompletion
 from litellm.types.completion import (
@@ -22,6 +21,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from winston.core.messages import Message, Response
+from winston.core.paths import AgentPaths
 from winston.core.protocols import (
   Agent,
   MessagePattern,
@@ -31,7 +31,7 @@ from winston.core.tools import (
   ToolManager,
 )
 
-litellm.set_verbose = True
+# litellm.set_verbose = True
 
 
 class AgentConfig(BaseModel):
@@ -123,12 +123,16 @@ class BaseAgent(Agent):
     self,
     system: System,
     config: AgentConfig,
+    paths: AgentPaths,
   ) -> None:
     """Initialize an Agent instance."""
     self.system = system
     self.config = config
+    self.paths = paths
     self.state = AgentState()
     self.tool_manager = ToolManager(system, config.id)
+
+    system.register_agent(self)
 
   @property
   def id(self) -> str:
@@ -396,3 +400,36 @@ class BaseAgent(Agent):
       content=f"Processed event: {event_type}",
       metadata={"event_type": event_type},
     )
+
+  async def generate_response(
+    self, message: Message
+  ) -> Response:
+    """Generate a non-streaming response from the LLM."""
+    messages = self._prepare_messages(message)
+    try:
+      response = await acompletion(
+        model=self.config.model,
+        messages=messages,
+        temperature=self.config.temperature,
+        stream=False,
+        timeout=self.config.timeout,
+      )
+      model_response = cast(ModelResponse, response)
+      if not model_response.choices:
+        raise ValueError("No choices in response")
+
+      message = model_response.choices[0].message
+      if not message:
+        raise ValueError("No message in response")
+
+      if message.content:
+        return Response(content=message.content)
+      else:
+        raise ValueError("No content in message")
+
+    except Exception as e:
+      logger.error("LLM error", exc_info=True)
+      return Response(
+        content=f"Error generating response: {str(e)}",
+        metadata={"error": True},
+      )

@@ -9,6 +9,7 @@ from winston.core.protocols import (
   System,
 )
 from winston.core.tools import Tool
+from winston.core.workspace import WorkspaceManager
 
 
 class AgentSystem(System):
@@ -19,6 +20,11 @@ class AgentSystem(System):
     self._event_subscribers: dict[str, set[str]] = {}
     self._tools: dict[str, Tool[Any]] = {}
     self._agent_tools: dict[str, set[str]] = {}
+    self._workspaces: dict[str, WorkspaceManager] = {}
+
+  #
+  # Agent management
+  #
 
   def register_agent(
     self,
@@ -44,6 +50,10 @@ class AgentSystem(System):
         if event not in self._event_subscribers:
           self._event_subscribers[event] = set()
         self._event_subscribers[event].add(agent.id)
+
+  #
+  # Tools
+  #
 
   def register_tool(self, tool: Tool[Any]) -> None:
     """
@@ -72,6 +82,35 @@ class AgentSystem(System):
     if agent_id not in self._agent_tools:
       self._agent_tools[agent_id] = set()
     self._agent_tools[agent_id].update(tool_names)
+
+  def get_agent_tools(
+    self, agent_id: str
+  ) -> dict[str, Tool[Any]]:
+    """
+    Get all tools available to an agent.
+
+    Parameters
+    ----------
+    agent_id : str
+        ID of the agent.
+
+    Returns
+    -------
+    dict[str, Tool]
+        Dictionary of tool name to tool instance.
+    """
+    allowed_tools = self._agent_tools.get(
+      agent_id, set()
+    )
+    return {
+      name: tool
+      for name, tool in self._tools.items()
+      if name in allowed_tools
+    }
+
+  #
+  # Message routing
+  #
 
   async def route_message(
     self,
@@ -107,6 +146,10 @@ class AgentSystem(System):
     async for response in agent.process(message):
       yield response
 
+  #
+  # Conversation handling
+  #
+
   async def invoke_conversation(
     self,
     agent_id: str,
@@ -141,6 +184,10 @@ class AgentSystem(System):
       agent_id, message
     ):
       yield response
+
+  #
+  # Function handling
+  #
 
   async def invoke_function(
     self,
@@ -196,6 +243,10 @@ class AgentSystem(System):
       return response
     raise RuntimeError("No response received")
 
+  #
+  # Event handling
+  #
+
   async def emit_event(
     self,
     event_type: str,
@@ -227,27 +278,38 @@ class AgentSystem(System):
       ):
         pass
 
-  def get_agent_tools(
-    self, agent_id: str
-  ) -> dict[str, Tool[Any]]:
-    """
-    Get all tools available to an agent.
+  #
+  # Workspace management
+  #
+
+  def get_workspace_manager(
+    self,
+    agent_id: str,
+  ) -> WorkspaceManager:
+    """Get workspace manager for an agent.
 
     Parameters
     ----------
     agent_id : str
-        ID of the agent.
+        ID of the agent
 
     Returns
     -------
-    dict[str, Tool]
-        Dictionary of tool name to tool instance.
+    WorkspaceManager
+        Workspace manager for the agent
     """
-    allowed_tools = self._agent_tools.get(
-      agent_id, set()
-    )
-    return {
-      name: tool
-      for name, tool in self._tools.items()
-      if name in allowed_tools
-    }
+    if agent_id not in self._workspaces:
+      agent = self._agents.get(agent_id)
+      if not agent:
+        raise ValueError(f"Agent {agent_id} not found")
+
+      workspace_path = (
+        agent.paths.workspaces / f"{agent_id}.md"
+      )
+      workspace_path.parent.mkdir(
+        parents=True, exist_ok=True
+      )
+      self._workspaces[agent_id] = WorkspaceManager(
+        workspace_path
+      )
+    return self._workspaces[agent_id]

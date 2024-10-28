@@ -3,11 +3,21 @@
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 from enum import StrEnum
-from typing import Any, Generic, Protocol, TypeVar
+from typing import (
+  TYPE_CHECKING,
+  Any,
+  Generic,
+  Protocol,
+  TypeVar,
+)
 
 from pydantic import BaseModel
 
 from winston.core.messages import Message, Response
+
+# Break circular import
+if TYPE_CHECKING:
+  from winston.core.workspace import WorkspaceManager
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -29,7 +39,15 @@ class Tool(Protocol, Generic[T]):
   input_model: type[BaseModel]
   output_model: type[T]
 
-  def to_openai_schema(self) -> dict[str, Any]: ...
+  def to_openai_schema(self) -> dict[str, Any]:
+    """Convert tool to OpenAI function schema.
+
+    Returns
+    -------
+    dict[str, Any]
+        OpenAI-compatible function schema
+    """
+    ...
 
 
 class Agent(Protocol):
@@ -46,7 +64,40 @@ class Agent(Protocol):
     self,
     message: Message,
   ) -> AsyncIterator[Response]:
-    """Process an incoming message."""
+    """Process an incoming message and stream responses.
+
+    Parameters
+    ----------
+    message : Message
+        The message to process
+
+    Returns
+    -------
+    AsyncIterator[Response]
+        Stream of responses generated from the message
+    """
+    ...
+
+  @abstractmethod
+  async def generate_response(
+    self,
+    message: Message,
+  ) -> Response:
+    """Generate a single response from the agent.
+
+    Unlike process(), this method returns a single response rather than
+    streaming multiple responses.
+
+    Parameters
+    ----------
+    message : Message
+        The message to generate a response for
+
+    Returns
+    -------
+    Response
+        The generated response
+    """
     ...
 
 
@@ -58,19 +109,45 @@ class System(Protocol):
     agent: Agent,
     subscribed_events: list[str] | None = None,
   ) -> None:
-    """Register an agent with the system."""
+    """Register an agent with the system.
+
+    Parameters
+    ----------
+    agent : Agent
+        The agent to register
+    subscribed_events : list[str] | None, optional
+        List of event types the agent should subscribe to, by default None
+    """
     ...
 
   def register_tool(
     self,
     tool: Tool[Any],
-  ) -> None: ...
+  ) -> None:
+    """Register a tool with the system.
+
+    Parameters
+    ----------
+    tool : Tool[Any]
+        The tool to register
+    """
+    ...
 
   def grant_tool_access(
     self,
     agent_id: str,
     tool_names: list[str],
-  ) -> None: ...
+  ) -> None:
+    """Grant an agent access to specific tools.
+
+    Parameters
+    ----------
+    agent_id : str
+        ID of the agent to grant access to
+    tool_names : list[str]
+        Names of tools to grant access to
+    """
+    ...
 
   def get_agent_tools(
     self,
@@ -85,5 +162,40 @@ class System(Protocol):
     function_name: str,
     args: dict[str, Any],
   ) -> Response:
-    """Invoke a function."""
+    """Invoke a function with the given arguments.
+
+    Parameters
+    ----------
+    agent_id : str
+        ID of the agent invoking the function
+    function_name : str
+        Name of the function to invoke
+    args : dict[str, Any]
+        Arguments to pass to the function
+
+    Returns
+    -------
+    Response
+        Response from the function invocation
+    """
+    ...
+
+  def get_workspace_manager(
+    self,
+    agent_id: str,
+  ) -> (
+    "WorkspaceManager"
+  ):  # Add quotes to make it a forward reference
+    """Get a workspace manager for an agent.
+
+    Parameters
+    ----------
+    agent_id : str
+        ID of the agent to get workspace manager for
+
+    Returns
+    -------
+    WorkspaceManager
+        Workspace manager instance for the agent
+    """
     ...

@@ -1,6 +1,9 @@
 """Winston chat implementation with tool support."""
 
+from pathlib import Path
+
 from winston.core.agent import AgentConfig, BaseAgent
+from winston.core.paths import AgentPaths
 from winston.core.protocols import Agent, System
 from winston.core.tools import Tool
 from winston.tools.weather import (
@@ -14,7 +17,10 @@ class ToolEnabledWinston(BaseAgent):
   """Winston agent implementation with tool support."""
 
   def __init__(
-    self, system: System, config: AgentConfig
+    self,
+    system: System,
+    config: AgentConfig,
+    paths: AgentPaths,
   ) -> None:
     """Initialize tool-enabled Winston agent.
 
@@ -24,8 +30,12 @@ class ToolEnabledWinston(BaseAgent):
         The system instance.
     config : AgentConfig
         The agent configuration.
+    paths : AgentPaths
+        The agent paths configuration.
     """
-    super().__init__(system=system, config=config)
+    super().__init__(
+      system=system, config=config, paths=paths
+    )
     self.tools: dict[str, Tool[WeatherResponse]] = {}
 
     # Register weather tool
@@ -38,6 +48,11 @@ class ToolEnabledWinston(BaseAgent):
 class ToolEnabledWinstonChat(AgentChat):
   """Winston chat interface with tool support."""
 
+  def __init__(self) -> None:
+    # Set up paths relative to this file's location
+    self.paths = AgentPaths(root=Path(__file__).parent)
+    super().__init__()
+
   def create_agent(self, system: System) -> Agent:
     """Create tool-enabled Winston agent instance.
 
@@ -47,11 +62,12 @@ class ToolEnabledWinstonChat(AgentChat):
         The Winston agent instance with tool support.
     """
     config = AgentConfig.from_yaml(
-      "examples/ch03/config/agents/winston.yaml"
+      self.paths.config / "agents/winston.yaml"
     )
     return ToolEnabledWinston(
       system=system,
       config=config,
+      paths=self.paths,
     )
 
 
