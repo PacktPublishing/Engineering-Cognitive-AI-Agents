@@ -192,5 +192,6 @@ wheels/
 .files/
 *_files.md
 *.docx
+*:Zone.Identifier
 
 public/
