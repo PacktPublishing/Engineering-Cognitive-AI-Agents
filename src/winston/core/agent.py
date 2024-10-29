@@ -30,6 +30,9 @@ from winston.core.protocols import (
 from winston.core.tools import (
   ToolManager,
 )
+from winston.core.vision import (
+  create_vision_messages,
+)
 
 # litellm.set_verbose = True
 
@@ -39,6 +42,7 @@ class AgentConfig(BaseModel):
 
   id: str
   model: str
+  vision_model: str | None = None
   system_prompt: str
   temperature: float = 0.7
   stream: bool = True
@@ -221,7 +225,7 @@ class BaseAgent(Agent):
         ).to_chat_completion_message()
       )
 
-    if history := message.context.get("history", []):
+    if history := message.metadata.get("history", []):
       messages.extend(
         Message.from_history(
           msg
@@ -471,5 +475,97 @@ class BaseAgent(Agent):
       logger.error("LLM error", exc_info=True)
       yield Response(
         content=f"Error generating response: {str(e)}",
+        metadata={"error": True},
+      )
+
+  async def generate_vision_response(
+    self,
+    prompt: str,
+    image_path: str | Path,
+  ) -> Response:
+    """Generate a non-streaming response from the vision model.
+
+    Parameters
+    ----------
+    prompt : str
+        Text prompt for the vision model
+    image_path : str | Path
+        Path to image file
+
+    Returns
+    -------
+    Response
+        The generated response from the vision model
+    """
+    messages = create_vision_messages(
+      prompt, image_path
+    )
+
+    try:
+      model = (
+        self.config.vision_model or self.config.model
+      )
+      response = await acompletion(
+        model=model,
+        messages=messages,
+        temperature=self.config.temperature,
+        stream=False,
+        timeout=self.config.timeout,
+      )
+
+      model_response = cast(ModelResponse, response)
+      if not model_response.choices:
+        raise ValueError("No choices in response")
+
+      message = model_response.choices[0].message
+      if not message:
+        raise ValueError("No message in response")
+
+      if message.content:
+        return Response(content=message.content)
+      else:
+        raise ValueError("No content in message")
+
+    except Exception as e:
+      logger.error("Vision model error", exc_info=True)
+      return Response(
+        content=f"Error processing image: {str(e)}",
+        metadata={"error": True},
+      )
+
+  async def generate_streaming_vision_response(
+    self,
+    prompt: str,
+    image_path: str | Path,
+  ) -> AsyncIterator[Response]:
+    """Generate a streaming response from the vision model."""
+    messages = create_vision_messages(
+      prompt, image_path
+    )
+
+    try:
+      model = (
+        self.config.vision_model or self.config.model
+      )
+      response = await acompletion(
+        model=model,
+        messages=messages,
+        temperature=self.config.temperature,
+        stream=True,
+        timeout=self.config.timeout,
+      )
+
+      # Process streaming response directly
+      async for chunk in cast(
+        CustomStreamWrapper, response
+      ):
+        choices = chunk["choices"][0]
+        if content := choices.delta.get("content"):
+          yield Response(content=content)
+
+    except Exception as e:
+      logger.error("Vision model error", exc_info=True)
+      yield Response(
+        content=f"Error processing image: {str(e)}",
         metadata={"error": True},
       )

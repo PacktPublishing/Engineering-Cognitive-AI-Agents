@@ -72,11 +72,18 @@ class AgentChat:
       str
     ] = []  # Track tool responses
 
+    # Handle image uploads by adding to metadata
+    metadata = {"history": history}
+    if message.elements and len(message.elements) > 0:
+      image = message.elements[0]
+      if isinstance(image, cl.Image):
+        metadata["image_path"] = image.path
+
     # Stream response
     async for response in system.invoke_conversation(
       agent_id,
       message.content,
-      context={"history": history},
+      context=metadata,
     ):
       if response.metadata.get("tool_call"):
         # Create a tool execution step

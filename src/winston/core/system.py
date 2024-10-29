@@ -154,32 +154,36 @@ class AgentSystem(System):
     self,
     agent_id: str,
     content: str,
-    context: dict[str, Any] = {},
+    context: dict[str, Any] | None = None,
   ) -> AsyncIterator[Response]:
-    """
-    Handle conversational pattern.
+    """Handle conversational pattern.
 
     Parameters
     ----------
     agent_id : str
-        ID of the agent to converse with.
+        ID of the agent to converse with
     content : str
-        The conversation content.
-    context : dict[str, Any]
-        Additional context for the conversation.
+        The conversation content
+    context : dict[str, Any] | None, optional
+        Additional metadata for the conversation, by default None
 
     Yields
     ------
     Response
-        Responses from the agent.
+        Responses from the agent
     """
+    metadata = {
+      "pattern": MessagePattern.CONVERSATION,
+    }
+    # Merge any additional metadata from context
+    if context:
+      metadata.update(context)
+
     message = Message(
       content=content,
-      metadata={
-        "pattern": MessagePattern.CONVERSATION
-      },
-      context=context,
+      metadata=metadata,
     )
+
     async for response in self.route_message(
       agent_id, message
     ):

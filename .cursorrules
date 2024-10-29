@@ -1,5 +1,6 @@
 # Python Coding Conventions
 
+- Tab size: 2
 - Python version: 3.12+
 - Use snake_case for variable names
 - Use type hints for all functions

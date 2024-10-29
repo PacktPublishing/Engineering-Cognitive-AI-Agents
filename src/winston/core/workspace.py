@@ -103,7 +103,7 @@ Current Workspace:
     msg_type = message.metadata.get(
       "type", "Interaction"
     )
-    print(f"msg_type: {msg_type}")
+
     content_format = (
       message.content
       if msg_type != "Interaction"
@@ -118,7 +118,6 @@ Current Workspace:
       )
     ).strip()
 
-    print(f"update_prompt: {update_prompt}")
     response = await agent.generate_response(
       Message(
         content=update_prompt,

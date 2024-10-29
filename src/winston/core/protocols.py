@@ -3,6 +3,7 @@
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 from enum import StrEnum
+from pathlib import Path
 from typing import (
   TYPE_CHECKING,
   Any,
@@ -97,6 +98,50 @@ class Agent(Protocol):
     -------
     Response
         The generated response
+    """
+    ...
+
+  @abstractmethod
+  async def generate_vision_response(
+    self,
+    prompt: str,
+    image_path: str | Path,
+  ) -> Response:
+    """Generate a single response from the vision model.
+
+    Parameters
+    ----------
+    prompt : str
+        Text prompt for the vision model
+    image_path : str | Path
+        Path to image file
+
+    Returns
+    -------
+    Response
+        The generated response from the vision model
+    """
+    ...
+
+  @abstractmethod
+  async def generate_streaming_vision_response(
+    self,
+    prompt: str,
+    image_path: str | Path,
+  ) -> AsyncIterator[Response]:
+    """Generate a streaming response from the vision model.
+
+    Parameters
+    ----------
+    prompt : str
+        Text prompt for the vision model
+    image_path : str | Path
+        Path to image file
+
+    Returns
+    -------
+    AsyncIterator[Response]
+        Stream of responses from the vision model
     """
     ...
 
@@ -198,4 +243,13 @@ class System(Protocol):
     WorkspaceManager
         Workspace manager instance for the agent
     """
+    ...
+
+  async def invoke_conversation(
+    self,
+    agent_id: str,
+    message: str,
+    context: dict[str, Any] | None = None,
+  ) -> AsyncIterator[Response]:
+    """Invoke a conversation with an agent."""
     ...
