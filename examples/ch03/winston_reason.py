@@ -125,7 +125,7 @@ class ReasoningWinston(BaseAgent):
     ) in self.generate_streaming_response(
       Message(
         content=analysis_prompt,
-        metadata={"type": "analysis_request"},
+        metadata={"type": "Analysis Request"},
       ),
     ):
       accumulated_analysis += response.content
@@ -135,7 +135,7 @@ class ReasoningWinston(BaseAgent):
     _ = await self.workspace_manager.update_workspace(
       Message(
         content=accumulated_analysis,
-        metadata={"type": "analysis_result"},
+        metadata={"type": "Analysis Result"},
       ),
       self,
     )

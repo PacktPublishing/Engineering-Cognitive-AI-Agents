@@ -9,5 +9,5 @@ When we write, we need to describe in prose (no lists) the motivations for the d
 
 Words and phrases to avoid:
 
-- journey, delve, crucial
+- journey, delve, crucial, synergy
 - seemingly simple

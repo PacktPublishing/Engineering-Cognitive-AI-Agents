@@ -59,41 +59,70 @@ class WorkspaceManager:
 
     # Base prompt template
     base_template = """
-        Given this {interaction_type}:
-        {content_format}
+Update the `Current Workspace` to incorporate the new information effectively.
 
-        And the current workspace:
-        {workspace}
+# Steps
 
-        Update the workspace to incorporate this information:
-        1. Integrate key insights and relationships identified
-        2. Update relevant sections (context, preferences, etc.)
-        3. Maintain existing sections and formatting
-        4. Keep the workspace concise and well-organized
-        """
+1. **Integrate Key Insights**: Extract critical insights and relationships from `Update Content` and integrate them into the existing workspace.
+2. **Specific Updates**:
+   - If `Message Type` is "Interaction": Update the relevant workspace sections, such as context and preferences.
+   - For other types, create or append sections as necessary to reflect the new content appropriately (i.e., if it is new, retain all details as provided)
+3. **Preserve Structure**: Maintain existing sections, formatting, and overall organization to ensure clarity and conciseness.
+
+# Output Format
+
+Provide the updated workspace in a clear and structured markdown format, maintaining existing layout and introducing necessary modifications or additions to incorporate new content.
+
+# Examples
+
+**Example 1**
+
+- **Input**:
+  - `msg_type`: "Interaction"
+  - `content_format`: "User interacted with new features."
+  - `workspace`: "## Existing Context..."
+
+- **Output**:
+  - `workspace`: "## Existing Context... \n\n### Updated Features...\n- User interacted with new features...\n"
+
+(Note: realistic examples should include detailed content and integration reflecting the actual updates for clarity and completeness.)
+
+Message Type: {msg_type}
+Update Content:
+```markdown
+{content_format}
+```
+
+Current Workspace:
+```markdown
+{workspace}
+```
+"""
 
     # Dynamic content formatting based on message type
     msg_type = message.metadata.get(
-      "type", "interaction"
+      "type", "Interaction"
     )
+    print(f"msg_type: {msg_type}")
     content_format = (
       message.content
-      if msg_type != "interaction"
+      if msg_type != "Interaction"
       else f"User: {message.content}"
     )
 
     update_prompt = dedent(
       base_template.format(
-        interaction_type=msg_type.replace("_", " "),
+        msg_type=msg_type.replace("_", " "),
         content_format=content_format,
         workspace=workspace,
       )
     ).strip()
 
+    print(f"update_prompt: {update_prompt}")
     response = await agent.generate_response(
       Message(
         content=update_prompt,
-        metadata={"type": "workspace_update"},
+        metadata={"type": "Workspace Update"},
       )
     )
     self.save_workspace(response.content)
