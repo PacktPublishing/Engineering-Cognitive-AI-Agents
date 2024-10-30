@@ -55,6 +55,9 @@ class WorkspaceManager:
     str
         The updated workspace content
     """
+    print(
+      f"Updating workspace ({agent.id}) with message: {message.content}"
+    )
     workspace = self.load_workspace()
 
     # Base prompt template

@@ -80,6 +80,31 @@ class Agent(Protocol):
     ...
 
   @abstractmethod
+  async def _process_private(
+    self,
+    message: Message,
+    workspace: str,
+  ) -> AsyncIterator[Response]:
+    """Process message in private workspace.
+
+    Streams responses and handles workspace updates.
+    """
+    ...
+
+  @abstractmethod
+  async def _process_shared(
+    self,
+    message: Message,
+    private_workspace: str,
+    shared_workspace: str,
+  ) -> AsyncIterator[Response]:
+    """Process results in shared workspace context.
+
+    Streams responses while integrating private and shared contexts.
+    """
+    ...
+
+  @abstractmethod
   async def generate_response(
     self,
     message: Message,

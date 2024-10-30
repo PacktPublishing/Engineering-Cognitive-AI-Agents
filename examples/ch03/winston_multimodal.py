@@ -1,7 +1,7 @@
 """Winston with cognitive workspace and multi-modal capabilities."""
 
-from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import AsyncIterator
 
 from winston.core.agent import AgentConfig, BaseAgent
 from winston.core.messages import Message, Response
@@ -21,70 +21,95 @@ class MultimodalWinston(BaseAgent):
   ) -> None:
     super().__init__(system, config, paths)
     self.workspace_manager = (
-      system.get_workspace_manager(
-        agent_id=self.id,
-      )
+      system.get_workspace_manager(self.id)
     )
 
-  async def process(
+  async def _process_private(
     self,
     message: Message,
-  ) -> AsyncIterator[Response]:
-    """Process an incoming message."""
-    # First update workspace with new information
-    updated_workspace = (
-      await self.workspace_manager.update_workspace(
-        message,
-        self,
-      )
-    )
+    workspace: str,
+  ) -> AsyncIterator[tuple[str, Response]]:
+    """Process visual input in private workspace."""
+    if "image_path" not in message.metadata:
+      return
 
-    # Handle image analysis if present
-    if "image_path" in message.metadata:
-      # Accumulate the complete vision response
-      accumulated_content = []
-      async for (
-        response
-      ) in self.generate_streaming_vision_response(
-        message.content,
-        message.metadata["image_path"],
-      ):
-        accumulated_content.append(response.content)
-        yield response
+    # Generate initial visual description
+    accumulated_content = []
 
-      # Update workspace once with complete vision observation
-      if accumulated_content:
+    async for (
+      response
+    ) in self.generate_streaming_vision_response(
+      message.content, message.metadata["image_path"]
+    ):
+      accumulated_content.append(
+        response.content
+      )  # Accumulate text
+      yield (
+        workspace,
+        response,
+      )  # Stream response with current workspace
+
+    # After processing, update private workspace with visual observations
+    if accumulated_content:
+      updated_workspace = (
         await self.workspace_manager.update_workspace(
           Message(
             content="".join(accumulated_content),
-            metadata={"type": "Visual Observation"},
+            metadata={
+              "type": "Private Visual Observation"
+            },
           ),
           self,
         )
-      return
+      )
+      # Final yield with updated workspace
+      yield updated_workspace, Response(content="")
 
-    # Otherwise generate normal response using workspace context
-    response_prompt = f"""
-            Given this user message:
-            {message.content}
+  async def _process_shared(
+    self,
+    message: Message,
+    private_workspace: str,
+    shared_workspace: str,
+  ) -> AsyncIterator[Response]:
+    """Integrate visual observations with shared context."""
+    integration_prompt = f"""
+    Given your visual observations:
+    {private_workspace}
 
-            And your cognitive workspace:
-            {updated_workspace}
+    And the shared cognitive context:
+    {shared_workspace}
 
-            Provide a response that:
-            1. Demonstrates awareness of previous interactions
-            2. Shows understanding of user preferences
-            3. Maintains conversation context
-            4. Is helpful and engaging
-            """
+    Provide an integrated understanding that:
+    1. Connects visual elements with context
+    2. Highlights relevant relationships
+    3. Draws meaningful conclusions
+    """
 
-    async for response in super().process(
+    # Stream responses and accumulate content
+    accumulated_content = []
+
+    async for (
+      response
+    ) in self.generate_streaming_response(
       Message(
-        content=response_prompt,
-        metadata={"workspace": updated_workspace},
+        content=integration_prompt,
+        metadata={"type": "Visual Integration"},
       )
     ):
-      yield response
+      accumulated_content.append(
+        response.content
+      )  # Accumulate text
+      yield response  # Stream to UI
+
+    # After processing, update shared workspace with complete integration
+    if accumulated_content:
+      await self.workspace_manager.update_workspace(
+        Message(
+          content="".join(accumulated_content),
+          metadata={"type": "Visual Integration"},
+        ),
+        self,
+      )
 
 
 class MultimodalWinstonChat(AgentChat):

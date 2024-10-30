@@ -316,4 +316,5 @@ class AgentSystem(System):
       self._workspaces[agent_id] = WorkspaceManager(
         workspace_path
       )
+
     return self._workspaces[agent_id]

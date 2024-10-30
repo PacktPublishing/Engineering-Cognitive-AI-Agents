@@ -24,7 +24,6 @@ from winston.core.messages import Message, Response
 from winston.core.paths import AgentPaths
 from winston.core.protocols import (
   Agent,
-  MessagePattern,
   System,
 )
 from winston.core.tools import (
@@ -136,7 +135,13 @@ class BaseAgent(Agent):
     self.state = AgentState()
     self.tool_manager = ToolManager(system, config.id)
 
+    # Register agent first
     system.register_agent(self)
+
+    # Then get workspace manager
+    self.workspace_manager = (
+      system.get_workspace_manager(self.id)
+    )
 
   @property
   def id(self) -> str:
@@ -147,34 +152,71 @@ class BaseAgent(Agent):
     self,
     message: Message,
   ) -> AsyncIterator[Response]:
-    """Process an incoming message."""
-    try:
-      pattern = MessagePattern(
-        message.metadata.get(
-          "pattern", MessagePattern.CONVERSATION
-        )
-      )
+    """Process message using private workspace first, then shared if available."""
+    print(
+      f"BaseAgent.process called for {self.__class__.__name__}"
+    )
+    print(f"Message: {message.content}")
 
-      if pattern == MessagePattern.CONVERSATION:
-        async for (
-          response
-        ) in self._handle_conversation(message):
-          yield response
-      elif pattern == MessagePattern.FUNCTION:
-        yield await self._handle_function(message)
-      elif pattern == MessagePattern.EVENT:
-        yield await self._handle_event(message)
+    # Get current private workspace
+    private_workspace = (
+      self.workspace_manager.load_workspace()
+    )
+    print("Got private workspace")
+
+    # Process in private workspace and stream responses
+    async for result in self._process_private(
+      message, private_workspace
+    ):
+      if isinstance(result, tuple):
+        # Unpack workspace and response from tuple
+        workspace, response = result
+        yield response
       else:
-        raise ValueError(f"Unknown pattern: {pattern}")
+        # Direct response
+        yield result
 
-    except Exception as e:
-      logger.error(
-        "Error processing message", exc_info=True
+    # Check if we're part of a shared cognitive process
+    shared_workspace = message.metadata.get(
+      "shared_workspace"
+    )
+    if shared_workspace:
+      # Process in shared context
+      async for response in self._process_shared(
+        message, private_workspace, shared_workspace
+      ):
+        yield response
+
+  async def _process_private(
+    self,
+    message: Message,
+    workspace: str,
+  ) -> AsyncIterator[Response]:
+    """Default private processing."""
+    # Update private workspace
+    updated = (
+      await self.workspace_manager.update_workspace(
+        message, self
       )
+    )
+    # Default implementation yields nothing
+    if False:
       yield Response(
-        content=f"Error processing message: {str(e)}",
-        metadata={"error": True},
-      )
+        content=""
+      )  # This makes it a valid AsyncIterator
+
+  async def _process_shared(
+    self,
+    message: Message,
+    private_workspace: str,
+    shared_workspace: str,
+  ) -> AsyncIterator[Response]:
+    """Default shared processing."""
+    # Default implementation yields nothing
+    if False:
+      yield Response(
+        content=""
+      )  # This makes it a valid AsyncIterator
 
   async def _handle_conversation(
     self,

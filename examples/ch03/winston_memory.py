@@ -1,7 +1,7 @@
 """Winston with cognitive workspace and basic memory capabilities."""
 
-from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import AsyncIterator
 
 from winston.core.agent import AgentConfig, BaseAgent
 from winston.core.messages import Message, Response
@@ -20,47 +20,115 @@ class MemoryWinston(BaseAgent):
     paths: AgentPaths,
   ) -> None:
     super().__init__(system, config, paths)
-
-    # Get workspace manager from system - no need to pass workspace_root
     self.workspace_manager = (
-      system.get_workspace_manager(
-        agent_id=self.id,
-      )
+      system.get_workspace_manager(self.id)
     )
 
-  async def process(
-    self, message: Message
-  ) -> AsyncIterator[Response]:
-    # Update workspace using the workspace manager
-    updated_workspace = (
-      await self.workspace_manager.update_workspace(
-        message,
-        self,
-      )
+  async def _process_private(
+    self,
+    message: Message,
+    workspace: str,
+  ) -> AsyncIterator[tuple[str, Response]]:
+    """Process message in private memory workspace."""
+    print(
+      f"MemoryWinston processing: {message.content}"
     )
 
-    # Generate response using workspace context
-    response_prompt = f"""
-        Given this user message:
-        {message.content}
+    # Generate initial memory-focused response
+    memory_prompt = f"""
+    Given this message:
+    {message.content}
 
-        And your cognitive workspace:
-        {updated_workspace}
+    And your private memory context:
+    {workspace}
 
-        Provide a response that:
-        1. Demonstrates awareness of previous interactions
-        2. Shows understanding of user preferences
-        3. Maintains conversation context
-        4. Is helpful and engaging
-        """
+    Generate initial thoughts focusing on:
+    1. Personal recollections and experiences
+    2. Individual preferences and patterns
+    3. Key memory triggers and associations
+    """
 
-    async for response in super().process(
+    # Stream responses and accumulate content
+    accumulated_content = []
+
+    async for (
+      response
+    ) in self.generate_streaming_response(
       Message(
-        content=response_prompt,
-        context={"workspace": updated_workspace},
+        content=memory_prompt,
+        metadata={"type": "Private Memory Processing"},
       )
     ):
-      yield response
+      accumulated_content.append(
+        response.content
+      )  # Accumulate text
+      yield (
+        workspace,
+        response,
+      )  # Stream response with current workspace
+
+    # After processing, update private workspace with complete memory
+    if accumulated_content:
+      updated_workspace = (
+        await self.workspace_manager.update_workspace(
+          Message(
+            content="".join(accumulated_content),
+            metadata={
+              "type": "Private Memory Processing"
+            },
+          ),
+          self,
+        )
+      )
+      # Final yield with updated workspace
+      yield updated_workspace, Response(content="")
+
+  async def _process_shared(
+    self,
+    message: Message,
+    private_workspace: str,
+    shared_workspace: str,
+  ) -> AsyncIterator[Response]:
+    """Integrate private memories with shared context."""
+    integration_prompt = f"""
+    Given your private recollections:
+    {private_workspace}
+
+    And the shared cognitive context:
+    {shared_workspace}
+
+    Provide a response that:
+    1. Integrates personal and shared memories
+    2. Shows understanding of collective context
+    3. Maintains conversational relevance
+    4. Is helpful and engaging
+    """
+
+    # Stream responses and accumulate content
+    accumulated_content = []
+
+    async for (
+      response
+    ) in self.generate_streaming_response(
+      Message(
+        content=integration_prompt,
+        metadata={"type": "Memory Integration"},
+      )
+    ):
+      accumulated_content.append(
+        response.content
+      )  # Accumulate text
+      yield response  # Stream to UI
+
+    # After processing, update shared workspace with complete integration
+    if accumulated_content:
+      await self.workspace_manager.update_workspace(
+        Message(
+          content="".join(accumulated_content),
+          metadata={"type": "Memory Integration"},
+        ),
+        self,
+      )
 
 
 class MemoryWinstonChat(AgentChat):
