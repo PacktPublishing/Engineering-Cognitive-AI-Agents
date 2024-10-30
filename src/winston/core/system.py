@@ -1,5 +1,6 @@
 """Central system managing agent communication and tools."""
 
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from winston.core.messages import Message, Response
@@ -20,7 +21,30 @@ class AgentSystem(System):
     self._event_subscribers: dict[str, set[str]] = {}
     self._tools: dict[str, Tool[Any]] = {}
     self._agent_tools: dict[str, set[str]] = {}
-    self._workspaces: dict[str, WorkspaceManager] = {}
+
+  def get_workspace_path(self, agent_id: str) -> Path:
+    """Get the workspace path for an agent.
+
+    Parameters
+    ----------
+    agent_id : str
+        ID of the agent
+
+    Returns
+    -------
+    Path
+        Path to the agent's workspace file
+
+    Raises
+    ------
+    ValueError
+        If agent not found
+    """
+    agent = self._agents.get(agent_id)
+    if not agent:
+      raise ValueError(f"Agent {agent_id} not found")
+
+    return agent.paths.workspaces / f"{agent_id}.md"
 
   #
   # Agent management
@@ -31,19 +55,15 @@ class AgentSystem(System):
     agent: Agent,
     subscribed_events: list[str] | None = None,
   ) -> None:
-    """
-    Register an agent with its capabilities.
-
-    Parameters
-    ----------
-    agent_id : str
-        Unique identifier for the agent.
-    agent : Agent
-        The agent instance to register.
-    subscribed_events : list[str] | None
-        Events the agent should subscribe to.
-    """
+    """Register an agent with its capabilities."""
     self._agents[agent.id] = agent
+
+    # Initialize workspace for the agent
+    workspace_path = self.get_workspace_path(agent.id)
+    workspace_manager = WorkspaceManager()
+    workspace_manager.initialize_workspace(
+      workspace_path
+    )
 
     if subscribed_events:
       for event in subscribed_events:
@@ -286,11 +306,10 @@ class AgentSystem(System):
   # Workspace management
   #
 
-  def get_workspace_manager(
-    self,
-    agent_id: str,
-  ) -> WorkspaceManager:
-    """Get workspace manager for an agent.
+  def get_workspace_content(
+    self, agent_id: str
+  ) -> str:
+    """Get the content of an agent's workspace.
 
     Parameters
     ----------
@@ -299,22 +318,40 @@ class AgentSystem(System):
 
     Returns
     -------
-    WorkspaceManager
-        Workspace manager for the agent
+    str
+        Content of the workspace
     """
-    if agent_id not in self._workspaces:
-      agent = self._agents.get(agent_id)
-      if not agent:
-        raise ValueError(f"Agent {agent_id} not found")
+    workspace_path = self.get_workspace_path(agent_id)
+    workspace_manager = WorkspaceManager()
+    return workspace_manager.load_workspace(
+      workspace_path
+    )
 
-      workspace_path = (
-        agent.paths.workspaces / f"{agent_id}.md"
-      )
-      workspace_path.parent.mkdir(
-        parents=True, exist_ok=True
-      )
-      self._workspaces[agent_id] = WorkspaceManager(
-        workspace_path
-      )
+  async def update_workspace(
+    self,
+    workspace_path: Path,
+    message: Message,
+    agent: Agent,
+  ) -> str:
+    """Update a workspace with new content.
 
-    return self._workspaces[agent_id]
+    Parameters
+    ----------
+    workspace_path : Path
+        Path to the workspace to update
+    message : Message
+        Message containing the update
+    agent : Agent
+        Agent to use for generating the update
+
+    Returns
+    -------
+    str
+        Updated workspace content
+    """
+    workspace_manager = WorkspaceManager()
+    return await workspace_manager.update_workspace(
+      workspace_path,
+      message,
+      agent,
+    )

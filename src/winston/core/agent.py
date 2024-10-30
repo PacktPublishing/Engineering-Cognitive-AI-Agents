@@ -32,10 +32,12 @@ from winston.core.tools import (
 from winston.core.vision import (
   create_vision_messages,
 )
+from winston.core.workspace import WorkspaceManager
 
 # litellm.set_verbose = True
 
 
+@dataclass
 class AgentConfig(BaseModel):
   """Enhanced agent configuration with validation."""
 
@@ -138,85 +140,91 @@ class BaseAgent(Agent):
     # Register agent first
     system.register_agent(self)
 
-    # Then get workspace manager
-    self.workspace_manager = (
-      system.get_workspace_manager(self.id)
-    )
-
   @property
   def id(self) -> str:
     """Get the agent ID."""
     return self.config.id
 
-  async def process(
+  @property
+  def workspace_path(self) -> Path:
+    """Get path to this agent's workspace."""
+    return self.paths.workspaces / f"{self.id}.md"
+
+  @classmethod
+  def can_handle(cls, message: Message) -> bool:
+    """Check if this agent can handle the message."""
+    return True
+
+  def _get_workspaces(
     self,
     message: Message,
-  ) -> AsyncIterator[Response]:
-    """Process message using private workspace first, then shared if available."""
-    print(
-      f"BaseAgent.process called for {self.__class__.__name__}"
-    )
-    print(f"Message: {message.content}")
+  ) -> tuple[str, str | None]:
+    """Get private and shared workspace content.
 
-    # Get current private workspace
+    Parameters
+    ----------
+    message : Message
+        Message that may contain shared workspace path
+
+    Returns
+    -------
+    tuple[str, str | None]
+        Private workspace content and optional shared workspace content
+    """
+    # Get private workspace content
+    workspace_manager = WorkspaceManager()
     private_workspace = (
-      self.workspace_manager.load_workspace()
-    )
-    print("Got private workspace")
-
-    # Process in private workspace and stream responses
-    async for result in self._process_private(
-      message, private_workspace
-    ):
-      if isinstance(result, tuple):
-        # Unpack workspace and response from tuple
-        workspace, response = result
-        yield response
-      else:
-        # Direct response
-        yield result
-
-    # Check if we're part of a shared cognitive process
-    shared_workspace = message.metadata.get(
-      "shared_workspace"
-    )
-    if shared_workspace:
-      # Process in shared context
-      async for response in self._process_shared(
-        message, private_workspace, shared_workspace
-      ):
-        yield response
-
-  async def _process_private(
-    self,
-    message: Message,
-    workspace: str,
-  ) -> AsyncIterator[Response]:
-    """Default private processing."""
-    # Update private workspace
-    updated = (
-      await self.workspace_manager.update_workspace(
-        message, self
+      workspace_manager.load_workspace(
+        self.workspace_path
       )
     )
-    # Default implementation yields nothing
-    if False:
-      yield Response(
-        content=""
-      )  # This makes it a valid AsyncIterator
 
-  async def _process_shared(
+    # Check for shared workspace
+    shared_workspace_path = message.metadata.get(
+      "shared_workspace"
+    )
+    if shared_workspace_path:
+      shared_workspace = (
+        workspace_manager.load_workspace(
+          shared_workspace_path
+        )
+      )
+    else:
+      shared_workspace = None
+
+    return private_workspace, shared_workspace
+
+  async def _update_workspaces(
     self,
     message: Message,
-    private_workspace: str,
-    shared_workspace: str,
-  ) -> AsyncIterator[Response]:
-    """Default shared processing."""
-    # Default implementation yields nothing
-    if False:
-      yield Response(
-        content=""
-      )  # This makes it a valid AsyncIterator
+  ) -> tuple[str, str | None]:
+    """Update workspaces with new content."""
+    workspace_manager = WorkspaceManager()
+
+    private_workspace = (
+      await workspace_manager.update_workspace(
+        self.workspace_path,
+        message,
+        self,
+      )
+    )
+
+    # Check for shared workspace
+    shared_workspace_path = message.metadata.get(
+      "shared_workspace"
+    )
+    if shared_workspace_path:
+      shared_workspace = (
+        await workspace_manager.update_workspace(
+          shared_workspace_path,
+          message,
+          self,
+        )
+      )
+    else:
+      shared_workspace = None
+
+    return private_workspace, shared_workspace
 
   async def _handle_conversation(
     self,

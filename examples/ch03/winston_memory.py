@@ -13,34 +13,35 @@ from winston.ui.chainlit_app import AgentChat
 class MemoryWinston(BaseAgent):
   """Winston with basic cognitive capabilities."""
 
-  def __init__(
-    self,
-    system: System,
-    config: AgentConfig,
-    paths: AgentPaths,
-  ) -> None:
-    super().__init__(system, config, paths)
-    self.workspace_manager = (
-      system.get_workspace_manager(self.id)
-    )
-
-  async def _process_private(
+  async def process(
     self,
     message: Message,
-    workspace: str,
-  ) -> AsyncIterator[tuple[str, Response]]:
+  ) -> AsyncIterator[Response]:
     """Process message in private memory workspace."""
     print(
       f"MemoryWinston processing: {message.content}"
     )
 
+    private_workspace, shared_workspace = (
+      self._get_workspaces(message)
+    )
+
+    shared_context = ""
+    if shared_workspace:
+      shared_context = f"""
+      And considering the shared context:
+      {shared_workspace}
+      """
+
     # Generate initial memory-focused response
-    memory_prompt = f"""
+    response_prompt = f"""
     Given this message:
     {message.content}
 
-    And your private memory context:
-    {workspace}
+    Using your private context:
+    {private_workspace}
+
+    {shared_context}
 
     Generate initial thoughts focusing on:
     1. Personal recollections and experiences
@@ -49,86 +50,32 @@ class MemoryWinston(BaseAgent):
     """
 
     # Stream responses and accumulate content
-    accumulated_content = []
+    accumulated_content: list[str] = []
 
     async for (
       response
     ) in self.generate_streaming_response(
       Message(
-        content=memory_prompt,
-        metadata={"type": "Private Memory Processing"},
+        content=response_prompt,
+        metadata={"type": "Memory Processing"},
       )
     ):
-      accumulated_content.append(
-        response.content
-      )  # Accumulate text
-      yield (
-        workspace,
-        response,
-      )  # Stream response with current workspace
+      accumulated_content.append(response.content)
+      yield response
 
-    # After processing, update private workspace with complete memory
-    if accumulated_content:
-      updated_workspace = (
-        await self.workspace_manager.update_workspace(
-          Message(
-            content="".join(accumulated_content),
-            metadata={
-              "type": "Private Memory Processing"
-            },
-          ),
-          self,
-        )
-      )
-      # Final yield with updated workspace
-      yield updated_workspace, Response(content="")
+    # After processing, update workspace(s)
+    if not accumulated_content:
+      return
 
-  async def _process_shared(
-    self,
-    message: Message,
-    private_workspace: str,
-    shared_workspace: str,
-  ) -> AsyncIterator[Response]:
-    """Integrate private memories with shared context."""
-    integration_prompt = f"""
-    Given your private recollections:
-    {private_workspace}
-
-    And the shared cognitive context:
-    {shared_workspace}
-
-    Provide a response that:
-    1. Integrates personal and shared memories
-    2. Shows understanding of collective context
-    3. Maintains conversational relevance
-    4. Is helpful and engaging
-    """
-
-    # Stream responses and accumulate content
-    accumulated_content = []
-
-    async for (
-      response
-    ) in self.generate_streaming_response(
+    await self._update_workspaces(
       Message(
-        content=integration_prompt,
-        metadata={"type": "Memory Integration"},
-      )
-    ):
-      accumulated_content.append(
-        response.content
-      )  # Accumulate text
-      yield response  # Stream to UI
-
-    # After processing, update shared workspace with complete integration
-    if accumulated_content:
-      await self.workspace_manager.update_workspace(
-        Message(
-          content="".join(accumulated_content),
-          metadata={"type": "Memory Integration"},
-        ),
-        self,
-      )
+        content="".join(accumulated_content),
+        metadata={
+          **message.metadata,
+          "type": "Memory Processing",
+        },
+      ),
+    )
 
 
 class MemoryWinstonChat(AgentChat):

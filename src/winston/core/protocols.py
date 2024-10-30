@@ -5,7 +5,6 @@ from collections.abc import AsyncIterator
 from enum import StrEnum
 from pathlib import Path
 from typing import (
-  TYPE_CHECKING,
   Any,
   Generic,
   Protocol,
@@ -15,10 +14,6 @@ from typing import (
 from pydantic import BaseModel
 
 from winston.core.messages import Message, Response
-
-# Break circular import
-if TYPE_CHECKING:
-  from winston.core.workspace import WorkspaceManager
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -60,6 +55,18 @@ class Agent(Protocol):
     """Read-only agent identifier."""
     ...
 
+  @property
+  @abstractmethod
+  def workspace_path(self) -> Path:
+    """Get path to this agent's workspace."""
+    ...
+
+  @classmethod
+  @abstractmethod
+  def can_handle(cls, message: Message) -> bool:
+    """Check if this agent can handle the message."""
+    ...
+
   @abstractmethod
   async def process(
     self,
@@ -76,31 +83,6 @@ class Agent(Protocol):
     -------
     AsyncIterator[Response]
         Stream of responses generated from the message
-    """
-    ...
-
-  @abstractmethod
-  async def _process_private(
-    self,
-    message: Message,
-    workspace: str,
-  ) -> AsyncIterator[Response]:
-    """Process message in private workspace.
-
-    Streams responses and handles workspace updates.
-    """
-    ...
-
-  @abstractmethod
-  async def _process_shared(
-    self,
-    message: Message,
-    private_workspace: str,
-    shared_workspace: str,
-  ) -> AsyncIterator[Response]:
-    """Process results in shared workspace context.
-
-    Streams responses while integrating private and shared contexts.
     """
     ...
 
@@ -247,26 +229,6 @@ class System(Protocol):
     -------
     Response
         Response from the function invocation
-    """
-    ...
-
-  def get_workspace_manager(
-    self,
-    agent_id: str,
-  ) -> (
-    "WorkspaceManager"
-  ):  # Add quotes to make it a forward reference
-    """Get a workspace manager for an agent.
-
-    Parameters
-    ----------
-    agent_id : str
-        ID of the agent to get workspace manager for
-
-    Returns
-    -------
-    WorkspaceManager
-        Workspace manager instance for the agent
     """
     ...
 

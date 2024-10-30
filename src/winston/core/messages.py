@@ -128,7 +128,7 @@ class Message(BaseModel):
 class Response(BaseModel):
   """Universal response format."""
 
-  content: Any
+  content: str
   metadata: dict[str, Any] = Field(
     default_factory=dict
   )

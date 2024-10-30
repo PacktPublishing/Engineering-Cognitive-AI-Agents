@@ -13,29 +13,10 @@ from winston.ui.chainlit_app import AgentChat
 class ReasoningWinston(BaseAgent):
   """Winston with memory and reasoning capabilities."""
 
-  def __init__(
-    self,
-    system: System,
-    config: AgentConfig,
-    paths: AgentPaths,
-  ) -> None:
-    super().__init__(system, config, paths)
-    self.workspace_manager = (
-      system.get_workspace_manager(self.id)
-    )
-
-  async def _process_private(
-    self,
-    message: Message,
-    workspace: str,
-  ) -> AsyncIterator[tuple[str, Response]]:
-    """Do initial analysis in private workspace."""
-    print(
-      f"ReasoningWinston processing: {message.content}"
-    )
-
-    # Check if analysis needed
-    needs_analysis = any(
+  @classmethod
+  def can_handle(cls, message: Message) -> bool:
+    """Check if this agent can handle the message."""
+    return any(
       trigger in message.content.lower()
       for trigger in [
         "analyze",
@@ -48,101 +29,75 @@ class ReasoningWinston(BaseAgent):
       ]
     )
 
-    if not needs_analysis:
-      return
-
-    # Do private analysis
-    analysis_prompt = f"""
-      Analyze privately:
-      {message.content}
-
-      Current private context:
-      {workspace}
-
-      Develop initial analysis focusing on:
-      1. Key elements and relationships
-      2. Initial insights
-      3. Areas needing deeper investigation
-    """
-
-    # Stream responses and accumulate content
-    accumulated_content = []
-
-    async for (
-      response
-    ) in self.generate_streaming_response(
-      Message(
-        content=analysis_prompt,
-        metadata={"type": "Private Analysis"},
-      )
-    ):
-      accumulated_content.append(
-        response.content
-      )  # Accumulate text
-      yield (
-        workspace,
-        response,
-      )  # Stream response with current workspace
-
-    # After processing, update private workspace with complete analysis
-    if accumulated_content:
-      updated_workspace = (
-        await self.workspace_manager.update_workspace(
-          Message(
-            content="".join(accumulated_content),
-            metadata={"type": "Private Analysis"},
-          ),
-          self,
-        )
-      )
-      # Final yield with updated workspace
-      yield updated_workspace, Response(content="")
-
-  async def _process_shared(
+  async def process(
     self,
     message: Message,
-    private_workspace: str,
-    shared_workspace: str,
   ) -> AsyncIterator[Response]:
-    """Refine analysis using shared context."""
-    shared_prompt = f"""
-      Given your private analysis:
+    """Process message using private and optionally shared context."""
+    print(
+      f"ReasoningWinston processing: {message.content}"
+    )
+
+    if not self.can_handle(message):
+      return
+
+    private_workspace, shared_workspace = (
+      self._get_workspaces(message)
+    )
+    print("Got private workspace")
+
+    shared_context = ""
+    if shared_workspace:
+      shared_context = f"""
+      And considering the shared context:
+      {shared_workspace}
+      """
+
+    # Generate analysis using all available context
+    response_prompt = f"""
+      Analyze this situation:
+      {message.content}
+
+      Using your private context:
       {private_workspace}
 
-      And the shared context:
-      {shared_workspace}
+      {shared_context}
 
       Develop a comprehensive analysis that:
-      1. Integrates private insights with shared context
-      2. Provides clear, actionable conclusions
-      3. Highlights relevant connections
+      1. Identifies key elements and relationships
+      2. Draws on relevant private and shared context
+      3. Provides clear insights and conclusions
     """
 
     # Stream responses and accumulate content
-    accumulated_content = []
+    accumulated_content: list[str] = []
 
     async for (
       response
     ) in self.generate_streaming_response(
       Message(
-        content=shared_prompt,
-        metadata={"type": "Shared Analysis"},
+        content=response_prompt,
+        metadata={"type": "Reasoning Analysis"},
       )
     ):
-      accumulated_content.append(
-        response.content
-      )  # Accumulate text
-      yield response  # Stream to UI
+      accumulated_content.append(response.content)
+      yield response
 
-    # After processing, update shared workspace with complete analysis
-    if accumulated_content:
-      await self.workspace_manager.update_workspace(
-        Message(
-          content="".join(accumulated_content),
-          metadata={"type": "Shared Analysis"},
-        ),
-        self,
-      )
+    # After processing, update workspace(s)
+    if not accumulated_content:
+      return
+
+    complete_analysis = "".join(accumulated_content)
+
+    await self._update_workspaces(
+      Message(
+        content=complete_analysis,
+        metadata={
+          **message.metadata,
+          "type": "Reasoning Analysis",
+        },
+      ),
+    )
 
 
 class ReasoningWinstonChat(AgentChat):

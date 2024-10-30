@@ -59,83 +59,41 @@ class CognitiveWinston(BaseAgent):
       system, multimodal_config, paths
     )
 
-  async def _process_private(
+  async def process(
     self,
     message: Message,
-    workspace: str,
-  ) -> AsyncIterator[tuple[str, Response]]:
+  ) -> AsyncIterator[Response]:
     """Process in private workspace first."""
     print(
       f"CognitiveWinston processing: {message.content}"
     )
 
-    # Create message with shared workspace context for sub-agents
+    # Create message with shared workspace ID for sub-agents
     sub_message = Message(
       content=message.content,
       metadata={
         **message.metadata,
-        "shared_workspace": workspace,
+        "shared_workspace": self.workspace_path,
       },
     )
 
-    # Determine which agent should handle the message and stream responses
+    # Route to appropriate agent
     if "image_path" in message.metadata:
       print("Routing to multimodal agent")
-      async for (
-        response
-      ) in self.multimodal_agent.process(sub_message):
-        yield workspace, response
-
-    elif any(
-      trigger in message.content.lower()
-      for trigger in [
-        "analyze",
-        "understand",
-        "explain why",
-        "what's causing",
-        "help me understand",
-        "struggling with",
-        "having trouble",
-      ]
-    ):
+      agent = self.multimodal_agent
+    elif self.reasoning_agent.can_handle(message):
       print("Routing to reasoning agent")
-      async for (
-        response
-      ) in self.reasoning_agent.process(sub_message):
-        yield workspace, response
-
-    elif any(
-      trigger in message.content.lower()
-      for trigger in [
-        "plan",
-        "organize",
-        "schedule",
-        "steps to",
-        "how should i",
-        "what's the best way to",
-        "help me figure out how to",
-        "execute",
-        "start",
-        "begin",
-        "do",
-        "implement",
-        "carry out",
-        "perform",
-        "complete step",
-      ]
-    ):
+      agent = self.reasoning_agent
+    elif self.planning_agent.can_handle(message):
       print("Routing to planning agent")
-      async for (
-        response
-      ) in self.planning_agent.process(sub_message):
-        yield workspace, response
-
+      agent = self.planning_agent
     else:
       print("Routing to memory agent")
-      async for response in self.memory_agent.process(
-        sub_message
-      ):
-        yield workspace, response
+      agent = self.memory_agent
+
+    # Process with selected agent
+    async for response in agent.process(sub_message):
+      yield response
 
 
 class CognitiveWinstonChat(AgentChat):

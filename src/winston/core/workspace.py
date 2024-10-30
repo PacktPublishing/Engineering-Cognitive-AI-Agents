@@ -1,22 +1,38 @@
 # src/winston/core/workspace.py
 from pathlib import Path
 from textwrap import dedent
+from typing import ClassVar, Union
 
 from winston.core.messages import Message
 from winston.core.protocols import Agent
 
 
 class WorkspaceManager:
-  def __init__(self, workspace_path: Path):
-    self.workspace_path = workspace_path
-    self.workspace_path.parent.mkdir(
-      parents=True, exist_ok=True
-    )
-    self.initialize_workspace()
+  """Singleton manager for all workspaces."""
 
-  def initialize_workspace(self) -> None:
-    if not self.workspace_path.exists():
-      self.workspace_path.write_text(
+  _instance: ClassVar[
+    Union["WorkspaceManager", None]
+  ] = None
+
+  def __new__(cls) -> "WorkspaceManager":
+    if cls._instance is None:
+      cls._instance = super().__new__(cls)
+      cls._instance._initialize()
+    return cls._instance
+
+  def _initialize(self) -> None:
+    """Initialize the workspace manager."""
+    self._workspaces: dict[Path, str] = {}
+
+  def initialize_workspace(
+    self, workspace_path: Path
+  ) -> None:
+    """Initialize a workspace if it doesn't exist."""
+    if not workspace_path.exists():
+      workspace_path.parent.mkdir(
+        parents=True, exist_ok=True
+      )
+      workspace_path.write_text(
         dedent(
           """
           # Cognitive Workspace
@@ -32,33 +48,48 @@ class WorkspaceManager:
         ).strip()
       )
 
-  def load_workspace(self) -> str:
-    return self.workspace_path.read_text()
+  def load_workspace(
+    self, workspace_path: Path
+  ) -> str:
+    """Load workspace content, initializing if needed."""
+    if workspace_path not in self._workspaces:
+      self.initialize_workspace(workspace_path)
+      self._workspaces[workspace_path] = (
+        workspace_path.read_text()
+      )
+    return self._workspaces[workspace_path]
 
-  def save_workspace(self, content: str) -> None:
-    self.workspace_path.write_text(content)
+  def save_workspace(
+    self, workspace_path: Path, content: str
+  ) -> None:
+    """Save workspace content."""
+    workspace_path.write_text(content)
+    self._workspaces[workspace_path] = content
 
   async def update_workspace(
-    self, message: Message, agent: Agent
+    self,
+    workspace_path: Path,
+    message: Message,
+    agent: Agent,  # Still need agent for LLM calls
   ) -> str:
     """Update workspace with new interaction.
 
     Parameters
     ----------
+    workspace_path : Path
+        Path to the workspace to update
     message : Message
         The new message to process
     agent : Agent
-        The agent to use for generating the update
+        Agent to use for generating the update
 
     Returns
     -------
     str
         The updated workspace content
     """
-    print(
-      f"Updating workspace ({agent.id}) with message: {message.content}"
-    )
-    workspace = self.load_workspace()
+    print(f"Updating workspace: {workspace_path}")
+    workspace = self.load_workspace(workspace_path)
 
     # Base prompt template
     base_template = """
@@ -127,5 +158,7 @@ Current Workspace:
         metadata={"type": "Workspace Update"},
       )
     )
-    self.save_workspace(response.content)
+    self.save_workspace(
+      workspace_path, response.content
+    )
     return response.content
