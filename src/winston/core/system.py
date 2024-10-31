@@ -62,7 +62,8 @@ class AgentSystem(System):
     workspace_path = self.get_workspace_path(agent.id)
     workspace_manager = WorkspaceManager()
     workspace_manager.initialize_workspace(
-      workspace_path
+      workspace_path,
+      agent.config.workspace_template,
     )
 
     if subscribed_events:

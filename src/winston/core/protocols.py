@@ -13,6 +13,7 @@ from typing import (
 
 from pydantic import BaseModel
 
+from winston.core.agent_config import AgentConfig
 from winston.core.messages import Message, Response
 
 T = TypeVar("T", bound=BaseModel)
@@ -53,6 +54,12 @@ class Agent(Protocol):
   @abstractmethod
   def id(self) -> str:
     """Read-only agent identifier."""
+    ...
+
+  @property
+  @abstractmethod
+  def config(self) -> AgentConfig:
+    """Template for the agent's workspace."""
     ...
 
   @property

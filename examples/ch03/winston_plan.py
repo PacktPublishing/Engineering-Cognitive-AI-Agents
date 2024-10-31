@@ -10,7 +10,7 @@ from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
 
 
-class PlanningWinston(BaseAgent):
+class PlanningAgent(BaseAgent):
   """Winston with planning capabilities."""
 
   @classmethod
@@ -193,7 +193,7 @@ class PlanningWinstonChat(AgentChat):
     config = AgentConfig.from_yaml(
       self.paths.config / "agents/winston_plan.yaml"
     )
-    return PlanningWinston(
+    return PlanningAgent(
       system=system,
       config=config,
       paths=self.paths,

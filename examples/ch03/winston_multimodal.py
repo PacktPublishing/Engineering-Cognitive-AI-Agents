@@ -10,8 +10,8 @@ from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
 
 
-class MultimodalWinston(BaseAgent):
-  """Winston with multi-modal cognitive capabilities."""
+class MultimodalAgent(BaseAgent):
+  """Agent with multi-modal cognitive capabilities."""
 
   @classmethod
   def can_handle(cls, message: Message) -> bool:
@@ -63,6 +63,7 @@ class MultimodalWinston(BaseAgent):
 
     Using your private context:
     {private_workspace}
+
     {shared_context}
 
     Generate initial thoughts focusing on:
@@ -108,7 +109,7 @@ class MultimodalWinstonChat(AgentChat):
       self.paths.config
       / "agents/winston_multimodal.yaml",
     )
-    return MultimodalWinston(
+    return MultimodalAgent(
       system=system,
       config=config,
       paths=self.paths,

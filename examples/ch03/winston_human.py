@@ -10,8 +10,8 @@ from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
 
 
-class MemoryAgent(BaseAgent):
-  """Agent with basic memory capabilities."""
+class HumanWinston(BaseAgent):
+  """Winston with basic cognitive capabilities."""
 
   async def process(
     self,
@@ -19,7 +19,7 @@ class MemoryAgent(BaseAgent):
   ) -> AsyncIterator[Response]:
     """Process message in private memory workspace."""
     print(
-      f"MemoryWinston processing: {message.content}"
+      f"HumanWinston processing: {message.content}"
     )
 
     private_workspace, shared_workspace = (
@@ -43,10 +43,11 @@ class MemoryAgent(BaseAgent):
 
     {shared_context}
 
-    Generate initial thoughts focusing on:
-    1. Personal recollections and experiences
-    2. Individual preferences and patterns
-    3. Key memory triggers and associations
+    Your goal is to create a complete cognitive behavioral profile of the user.  Engage in creative roleplay, ask hypothetical questions, make compelling claims designed to generate a response that allows you to gain insight on the user.  Carefully consider the the existing profile and prioritize traits you'd like to better understand.
+
+    Always respond in two parts:
+    1. A short response to the user
+    2. Your inner monologue explaining what you're doing.  (The user won't see this part)
     """
 
     # Stream responses and accumulate content
@@ -78,7 +79,7 @@ class MemoryAgent(BaseAgent):
     )
 
 
-class MemoryWinstonChat(AgentChat):
+class HumanWinstonChat(AgentChat):
   """Chat interface for cognitive Winston."""
 
   def __init__(self) -> None:
@@ -88,9 +89,9 @@ class MemoryWinstonChat(AgentChat):
 
   def create_agent(self, system: System) -> Agent:
     config = AgentConfig.from_yaml(
-      self.paths.config / "agents/winston_memory.yaml"
+      self.paths.config / "agents/winston_human.yaml"
     )
-    return MemoryAgent(
+    return HumanWinston(
       system=system,
       config=config,
       paths=self.paths,
@@ -98,4 +99,4 @@ class MemoryWinstonChat(AgentChat):
 
 
 # Create the application
-app = MemoryWinstonChat()
+app = HumanWinstonChat()

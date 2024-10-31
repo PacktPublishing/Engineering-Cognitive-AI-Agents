@@ -3,13 +3,14 @@
 from pathlib import Path
 from typing import AsyncIterator
 
-from winston_memory import MemoryWinston
+from metacog import MetacognitionAgent
+from winston_memory import MemoryAgent
 from winston_multimodal import (
-  MultimodalWinston,
+  MultimodalAgent,
 )
-from winston_plan import PlanningWinston
+from winston_plan import PlanningAgent
 from winston_reason import (
-  ReasoningWinston,
+  ReasoningAgent,
 )
 
 from winston.core.agent import AgentConfig, BaseAgent
@@ -19,8 +20,8 @@ from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
 
 
-class CognitiveWinston(BaseAgent):
-  """Winston with comprehensive cognitive capabilities."""
+class CognitiveAgent(BaseAgent):
+  """Agent with comprehensive cognitive capabilities."""
 
   def __init__(
     self,
@@ -44,19 +45,25 @@ class CognitiveWinston(BaseAgent):
     multimodal_config = AgentConfig.from_yaml(
       paths.config / "agents/winston_multimodal.yaml"
     )
+    metacog_config = AgentConfig.from_yaml(
+      paths.config / "agents/metacog.yaml"
+    )
 
     # Initialize sub-agents
-    self.memory_agent = MemoryWinston(
+    self.memory_agent = MemoryAgent(
       system, memory_config, paths
     )
-    self.reasoning_agent = ReasoningWinston(
+    self.reasoning_agent = ReasoningAgent(
       system, reasoning_config, paths
     )
-    self.planning_agent = PlanningWinston(
+    self.planning_agent = PlanningAgent(
       system, planning_config, paths
     )
-    self.multimodal_agent = MultimodalWinston(
+    self.multimodal_agent = MultimodalAgent(
       system, multimodal_config, paths
+    )
+    self.metacog_agent = MetacognitionAgent(
+      system, metacog_config, paths
     )
 
   async def process(
@@ -78,7 +85,7 @@ class CognitiveWinston(BaseAgent):
     )
 
     # Route to appropriate agent
-    if "image_path" in message.metadata:
+    if self.multimodal_agent.can_handle(message):
       print("Routing to multimodal agent")
       agent = self.multimodal_agent
     elif self.reasoning_agent.can_handle(message):
@@ -95,6 +102,12 @@ class CognitiveWinston(BaseAgent):
     async for response in agent.process(sub_message):
       yield response
 
+    # Process with metacognition agent
+    async for _ in self.metacog_agent.process(
+      sub_message
+    ):
+      pass
+
 
 class CognitiveWinstonChat(AgentChat):
   """Chat interface for cognitive Winston."""
@@ -108,7 +121,7 @@ class CognitiveWinstonChat(AgentChat):
       self.paths.config
       / "agents/winston_cognitive.yaml"
     )
-    return CognitiveWinston(
+    return CognitiveAgent(
       system=system,
       config=config,
       paths=self.paths,

@@ -10,8 +10,8 @@ from winston.core.protocols import Agent, System
 from winston.ui.chainlit_app import AgentChat
 
 
-class ReasoningWinston(BaseAgent):
-  """Winston with memory and reasoning capabilities."""
+class ReasoningAgent(BaseAgent):
+  """Agent with reasoning capabilities."""
 
   @classmethod
   def can_handle(cls, message: Message) -> bool:
@@ -112,7 +112,7 @@ class ReasoningWinstonChat(AgentChat):
     config = AgentConfig.from_yaml(
       self.paths.config / "agents/winston_reason.yaml"
     )
-    return ReasoningWinston(
+    return ReasoningAgent(
       system=system,
       config=config,
       paths=self.paths,
