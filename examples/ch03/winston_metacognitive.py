@@ -5,7 +5,7 @@ from winston.core.messages import Message, Response
 from winston.core.workspace import WorkspaceManager
 
 
-class MetacognitionAgent(BaseAgent):
+class MetacognitiveAgent(BaseAgent):
   """Specialist agent for metacognitive workspace refinement."""
 
   async def process(

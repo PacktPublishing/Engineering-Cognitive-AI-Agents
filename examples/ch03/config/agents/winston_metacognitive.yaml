@@ -1,4 +1,4 @@
-id: winston_metacog
+id: winston_metacognitive
 model: gpt-4o-mini
 system_prompt: |
   You are Winston's metacognitive processor, responsible for analyzing and improving workspace organization and effectiveness.

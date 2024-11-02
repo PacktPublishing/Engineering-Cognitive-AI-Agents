@@ -3,15 +3,13 @@
 from pathlib import Path
 from typing import AsyncIterator
 
-from metacog import MetacognitionAgent
 from winston_memory import MemoryAgent
+from winston_metacognitive import MetacognitiveAgent
 from winston_multimodal import (
   MultimodalAgent,
 )
-from winston_plan import PlanningAgent
-from winston_reason import (
-  ReasoningAgent,
-)
+from winston_planning import PlanningAgent
+from winston_reasoning import ReasoningAgent
 
 from winston.core.agent import AgentConfig, BaseAgent
 from winston.core.messages import Message, Response
@@ -37,16 +35,17 @@ class CognitiveAgent(BaseAgent):
       paths.config / "agents/winston_memory.yaml"
     )
     reasoning_config = AgentConfig.from_yaml(
-      paths.config / "agents/winston_reason.yaml"
+      paths.config / "agents/winston_reasoning.yaml"
     )
     planning_config = AgentConfig.from_yaml(
-      paths.config / "agents/winston_plan.yaml"
+      paths.config / "agents/winston_planning.yaml"
     )
     multimodal_config = AgentConfig.from_yaml(
       paths.config / "agents/winston_multimodal.yaml"
     )
     metacog_config = AgentConfig.from_yaml(
-      paths.config / "agents/metacog.yaml"
+      paths.config
+      / "agents/winston_metacognitive.yaml"
     )
 
     # Initialize sub-agents
@@ -62,7 +61,7 @@ class CognitiveAgent(BaseAgent):
     self.multimodal_agent = MultimodalAgent(
       system, multimodal_config, paths
     )
-    self.metacog_agent = MetacognitionAgent(
+    self.metacog_agent = MetacognitiveAgent(
       system, metacog_config, paths
     )
 

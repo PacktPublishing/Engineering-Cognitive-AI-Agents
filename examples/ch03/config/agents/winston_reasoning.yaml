@@ -1,4 +1,4 @@
-id: winston_reason
+id: winston_reasoning
 model: gpt-4o-mini
 system_prompt: |
   You are Winston, an AI with cognitive capabilities including memory and learning.
