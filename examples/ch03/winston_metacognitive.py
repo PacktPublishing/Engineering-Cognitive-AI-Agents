@@ -13,7 +13,7 @@ class MetacognitiveAgent(BaseAgent):
     message: Message,
   ) -> AsyncIterator[Response]:
     """Analyze and refine the shared workspace."""
-    private_workspace, shared_workspace = (
+    _, shared_workspace = (
       self._get_workspaces(message)
     )
     if not shared_workspace:

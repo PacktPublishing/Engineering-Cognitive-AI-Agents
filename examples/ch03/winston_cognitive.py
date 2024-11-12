@@ -61,7 +61,7 @@ class CognitiveAgent(BaseAgent):
     self.multimodal_agent = MultimodalAgent(
       system, multimodal_config, paths
     )
-    self.metacog_agent = MetacognitiveAgent(
+    self.metacognitive_agent = MetacognitiveAgent(
       system, metacog_config, paths
     )
 
@@ -102,7 +102,7 @@ class CognitiveAgent(BaseAgent):
       yield response
 
     # Process with metacognition agent
-    async for _ in self.metacog_agent.process(
+    async for _ in self.metacognitive_agent.process(
       sub_message
     ):
       pass
