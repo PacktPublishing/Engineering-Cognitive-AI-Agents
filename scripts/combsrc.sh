@@ -3,9 +3,9 @@
 # Exit immediately if a command exits with a non-zero status
 set -e
 
-combine_md ./src '*.py' src_files.md
-combine_md ./tests '*.py' tests_files.md
-combine_md ./config '*.yaml' config_files.md
-combine_md ./examples '*.py' examples_files.md
-cat src_files.md tests_files.md examples_files.md config_files.md > all_files.md
-echo "Combined source files: all_files.md"
+combine_md ./src '*.py' combined_src.md
+combine_md ./tests '*.py' combined_tests.md
+combine_md ./config '*.yaml' combined_config.md
+combine_md ./examples '*.py' combined_examples.md
+cat README.md TODO.md combined_docs.md combined_src.md combined_ui.md combined_tests.md combined_guidelines.md > combined_all.md
+echo "Combined source files: combined_all.md"

@@ -189,7 +189,7 @@ wheels/
 *.egg-info
 **/chainlit.md
 .files/
-*_files.md
+combined_*.md
 *.docx
 *:Zone.Identifier
 examples/**/workspaces/
