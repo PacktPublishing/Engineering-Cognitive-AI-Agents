@@ -242,7 +242,7 @@ class System(Protocol):
   async def invoke_conversation(
     self,
     agent_id: str,
-    message: str,
+    content: str,
     context: dict[str, Any] | None = None,
   ) -> AsyncIterator[Response]:
     """Invoke a conversation with an agent."""

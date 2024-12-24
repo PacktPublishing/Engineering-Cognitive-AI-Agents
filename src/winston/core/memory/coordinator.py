@@ -101,9 +101,7 @@ class MemoryCoordinator(BaseAgent):
     paths: AgentPaths,
   ) -> None:
     super().__init__(system, config, paths)
-    logger.info(
-      "MemoryCoordinator initialized with system, config, and paths."
-    )
+    logger.info("MemoryCoordinator initialized")
 
     # Initialize specialist agents with their own configs
     self.episode_analyst = EpisodeAnalyst(
