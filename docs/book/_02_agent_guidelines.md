@@ -225,3 +225,206 @@ This approach:
 - Let the LLM's reasoning, guided by the prompt, drive tool selection and action
 
 This architectural principle ensures our agents remain truly cognitive rather than degrading into procedural RPC endpoints.
+
+## 3. Core Specialist Pattern
+
+The EpisodeAnalyst demonstrates the canonical pattern for specialist agents:
+
+```python
+# 1. Define a clear result model
+class AnalysisResult(BaseModel):
+    """Model representing the cognitive decision."""
+    decision: bool = Field(description="Primary decision point")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+class SpecialistAgent(BaseAgent):
+    def __init__(self, system: AgentSystem, config: AgentConfig, paths: AgentPaths) -> None:
+        super().__init__(system, config, paths)
+
+        # 2. Register single focused tool
+        tool = Tool(
+            name="report_analysis",
+            description="Report analysis results",
+            handler=self._handle_report,
+            input_model=AnalysisResult,  # Same model for input/output
+            output_model=AnalysisResult,
+        )
+        self.system.register_tool(tool)
+        self.system.grant_tool_access(self.id, [tool.name])
+
+    async def _handle_report(self, result: AnalysisResult) -> AnalysisResult:
+        """Simple pass-through handler."""
+        return result
+```
+
+Key aspects of this pattern:
+
+1. Single, focused Pydantic result model
+2. Inherits from BaseAgent (provides process() method)
+3. Registers one primary tool using the result model
+4. Minimal handler implementation
+5. Clear cognitive role in config YAML
+6. No additional processing logic - all intelligence in prompt
+
+This pattern ensures:
+
+- Clean separation between cognitive logic (prompt) and action (tool)
+- Structured decision capture via Pydantic
+- Minimal boilerplate code
+- Clear single responsibility
+
+## 7. Workspace Management
+
+Each agent in the system can maintain both private and shared workspaces:
+
+1. **Private Workspace**
+
+   - Agent-specific "scratch pad" for processing
+   - Maintains individual cognitive context
+   - Independent operation without interference
+   - Used for agent-specific memory and understanding
+   - Accessed through `self.workspace_path`
+
+2. **Shared Workspace**
+   - Enables multi-agent collaboration
+   - Passed via message metadata as `shared_workspace`
+   - Facilitates complex cognitive operations
+   - Preserves boundaries between agent processes
+   - Accessed through `message.metadata["shared_workspace"]`
+
+Example usage:
+
+```python
+async def process(
+    self,
+    message: Message,
+) -> AsyncIterator[Response]:
+    """Process in both private and shared contexts."""
+    # Get both workspaces
+    private_workspace, shared_workspace = self._get_workspaces(message)
+
+    # Use private workspace for agent-specific processing
+    # Use shared workspace for collaborative work
+
+    # Update both workspaces with new insights
+    await self._update_workspaces(
+        message,
+        private_update_template="...",
+        shared_update_template="...",
+    )
+```
+
+Key principles:
+
+1. **Workspace Initialization**
+
+   - Private workspaces are automatically initialized
+   - Templates can customize initial structure
+   - Markdown format enables easy inspection
+
+2. **Context Management**
+
+   - Private workspace maintains agent-specific memory
+   - Shared workspace enables collective intelligence
+   - Both persist across sessions
+
+3. **Update Process**
+
+   - Selective updates preserve context
+   - Maintain relationships between information
+   - Keep temporal continuity
+   - Ensure coherence across sections
+
+4. **Best Practices**
+   - Use private workspace for agent-specific processing
+   - Share only relevant insights in shared workspace
+   - Maintain clean separation between private and shared context
+   - Use templates to standardize workspace structure
+   - Keep workspaces focused and organized
+
+## 8. Agency-Level Workspace Patterns
+
+In the Society of Mind paradigm, agents form hierarchical groups called "agencies", where coordinator agents manage specialist sub-agents. This structure requires specific workspace patterns:
+
+1. **Agency Private Workspace**
+
+   - Each coordinator maintains an agency-level private workspace
+   - Accessible to both coordinator and its sub-agents
+   - Functions as shared context within the agency
+   - Preserves agency boundaries in multi-agency systems
+   - Accessed through coordinator's `self.workspace_path`
+
+2. **Workspace Access Pattern**
+
+```python
+class CoordinatorAgent(BaseAgent):
+    """Coordinator pattern with agency workspace."""
+
+    def __init__(self, system: System, config: AgentConfig, paths: AgentPaths) -> None:
+        super().__init__(system, config, paths)
+
+        # Initialize sub-agents with agency workspace
+        self.specialist_a = SpecialistAgent(
+            system,
+            config,
+            paths,
+            agency_workspace=self.workspace_path,  # Pass coordinator's workspace
+        )
+        self.specialist_b = SpecialistAgent(
+            system,
+            config,
+            paths,
+            agency_workspace=self.workspace_path,
+        )
+
+    async def process(self, message: Message) -> AsyncIterator[Response]:
+        """Process using agency-wide context."""
+        # Enhance message with agency context
+        agency_message = Message(
+            content=message.content,
+            metadata={
+                **message.metadata,
+                "agency_workspace": self.workspace_path,  # Make workspace available
+            },
+        )
+
+        # Sub-agents can now access agency workspace
+        async for response in self.specialist_a.process(agency_message):
+            yield response
+```
+
+3. **Agency Context Management**
+
+   - Coordinator owns and initializes workspace
+   - Sub-agents read and contribute to workspace
+   - Maintains cognitive continuity within agency
+   - Enables specialist collaboration through shared context
+
+4. **Best Practices**
+
+   - Use agency workspace for agency-specific knowledge
+   - Keep agency context separate from global shared workspaces
+   - Allow sub-agents to contribute insights to agency workspace
+   - Use coordinator to manage workspace updates
+   - Maintain clear agency boundaries
+
+5. **Multi-Level Context**
+   ```
+   System
+   ├── Global Shared Workspace
+   └── Agencies
+       ├── Agency A
+       │   ├── Agency Private Workspace (Coordinator + Sub-agents)
+       │   └── Sub-agent Private Workspaces (Optional)
+       └── Agency B
+           ├── Agency Private Workspace
+           └── Sub-agent Private Workspaces
+   ```
+
+This pattern enables:
+
+- Clear cognitive boundaries between agencies
+- Efficient collaboration within agencies
+- Hierarchical context management
+- Specialized knowledge sharing
+- Society of Mind principles in practice

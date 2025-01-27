@@ -1,4 +1,4 @@
-"""Winston with enhanced memory capabilities."""
+"""Winston with enhanced reasoning capabilities."""
 
 from pathlib import Path
 from typing import AsyncIterator, cast
@@ -6,30 +6,27 @@ from typing import AsyncIterator, cast
 from loguru import logger
 
 from winston.core.agent import AgentConfig, BaseAgent
-from winston.core.cognitive_loop.coordinator import (
-  CognitiveLoopCoordinator,
-)
-from winston.core.memory.coordinator import (
-  MemoryCoordinator,
-)
 from winston.core.messages import (
   Message,
   Response,
 )
 from winston.core.paths import AgentPaths
 from winston.core.protocols import Agent
+from winston.core.reasoning.coordinator import (
+  ReasoningCoordinator,
+)
 from winston.core.steps import ProcessingStep
 from winston.core.system import AgentSystem, System
 from winston.ui.chainlit_app import AgentChat
 
 
-class CognitiveLoopWinston(BaseAgent):
-  """Winston with enhanced memory capabilities."""
+class EnhancedReasoningWinston(BaseAgent):
+  """Winston with enhanced reasoning capabilities."""
 
   async def process(
     self, message: Message
   ) -> AsyncIterator[Response]:
-    """Process message using memory coordinator.
+    """Process message using reasoning coordinator.
 
     Parameters
     ----------
@@ -42,7 +39,7 @@ class CognitiveLoopWinston(BaseAgent):
         Responses from processing the message
     """
     logger.info(
-      f"Delegating to cognitive loop coordinator: {message.content}"
+      f"Delegating to reasoning coordinator: {message.content}"
     )
 
     # Create message with shared workspace
@@ -54,28 +51,31 @@ class CognitiveLoopWinston(BaseAgent):
       },
     )
 
-    # Delegate to cognitive loop coordinator
+    # Delegate to reasoning coordinator
     async with ProcessingStep(
-      name="Cognitive Loop Coordinator agent",
+      name="Reasoning Coordinator agent",
       step_type="run",
-    ):
-      async for (
-        response
-      ) in self.system.invoke_conversation(
-        agent_id="cognitive_loop_coordinator",
-        content=coordinator_message.content,
-        context=coordinator_message.metadata,
-      ):
-        if response.metadata.get("streaming"):
+    ) as step:
+      # Get the response iterator
+      responses = (
+        await self.system.invoke_conversation(
+          agent_id="reasoning_coordinator",
+          content=coordinator_message.content,
+          context=coordinator_message.metadata,
+        )
+      )
+      # Iterate through responses
+      async for response in responses:
+        if response.metadata.get("streaming", False):
           yield response
           continue
         logger.trace(
-          f"Cognitive loop coordinator response: {response}"
+          f"Reasoning coordinator response: {response}"
         )
-        updated_workspace = response.content
         message.metadata["current_workspace"] = (
-          updated_workspace
+          response.content
         )
+        await step.show_response(response)
 
     async for (
       response
@@ -83,8 +83,8 @@ class CognitiveLoopWinston(BaseAgent):
       yield response
 
 
-class CognitiveLoopWinstonChat(AgentChat):
-  """Chat interface for cognitive loop-enabled Winston."""
+class EnhancedReasoningWinstonChat(AgentChat):
+  """Chat interface for memory-enabled Winston."""
 
   def __init__(self) -> None:
     # Set up paths with both application and system roots
@@ -99,7 +99,7 @@ class CognitiveLoopWinstonChat(AgentChat):
     super().__init__()
 
   def create_agent(self, system: System) -> Agent:
-    """Create Winston instance with memory capabilities.
+    """Create Winston instance with reasoning capabilities.
 
     Parameters
     ----------
@@ -111,28 +111,14 @@ class CognitiveLoopWinstonChat(AgentChat):
     Agent
         The configured Winston agent
     """
-    # Create and register memory coordinator
+    # Create and register reasoning coordinator
     coordinator_config = AgentConfig.from_yaml(
       self.paths.system_agents_config
-      / "memory"
+      / "reasoning"
       / "coordinator.yaml"
     )
     system.register_agent(
-      MemoryCoordinator(
-        system=cast(AgentSystem, system),
-        config=coordinator_config,
-        paths=self.paths,
-      )
-    )
-
-    # Create and register cognitive loop coordinator
-    coordinator_config = AgentConfig.from_yaml(
-      self.paths.system_agents_config
-      / "cognitive_loop"
-      / "coordinator.yaml"
-    )
-    system.register_agent(
-      CognitiveLoopCoordinator(
+      ReasoningCoordinator(
         system=cast(AgentSystem, system),
         config=coordinator_config,
         paths=self.paths,
@@ -143,9 +129,9 @@ class CognitiveLoopWinstonChat(AgentChat):
     config = AgentConfig.from_yaml(
       self.paths.config
       / "agents"
-      / "winston_cognitive_loop.yaml"
+      / "winston_enhanced_reasoning.yaml"
     )
-    return CognitiveLoopWinston(
+    return EnhancedReasoningWinston(
       system=system,
       config=config,
       paths=self.paths,
@@ -153,4 +139,4 @@ class CognitiveLoopWinstonChat(AgentChat):
 
 
 # Create the application
-app = CognitiveLoopWinstonChat()
+app = EnhancedReasoningWinstonChat()
