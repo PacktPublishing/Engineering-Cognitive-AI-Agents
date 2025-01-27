@@ -67,6 +67,51 @@ The implementation uses the Free Energy Principle (FEP) for problem-solving:
 
 FEP serves as the underlying mechanism, with deeper integration in later chapters on meta-cognition and autopoiesis.
 
+## Evolution of Reasoning Models
+
+Recent advances in LLM architecture have produced specialized "reasoning models" designed to think systematically before responding. These models differ from traditional transformers in several key ways:
+
+1. **Test-Time Computation**
+
+   - Uses extended computation during inference
+   - Performs iterative self-revision
+   - Implements best-of-N sampling
+   - Enables more thorough problem analysis
+
+2. **Internal Reasoning Tokens**
+
+   - Generates invisible planning tokens
+   - Breaks down complex problems
+   - Structures multi-step solutions
+   - Maintains reasoning coherence
+
+3. **Key Architectural Changes**
+   - Expanded context windows (200K-1M tokens)
+   - Native code execution support
+   - Multi-stage training approaches
+   - Enhanced self-revision mechanisms
+
+These models demonstrate particular strength in:
+
+- Scientific reasoning
+- Mathematical problem-solving
+- Software engineering tasks
+- Complex analysis scenarios
+
+The evolution of reasoning models aligns with our framework's goals of systematic problem-solving and structured thinking, while offering new opportunities for enhanced cognitive capabilities.
+
+## Integration with Specialist Agents
+
+Our specialist agents (HypothesisAgent, InquiryAgent, and ValidationAgent) leverage these reasoning models, particularly gpt-4-mini. Since these models are optimized for extended reasoning but don't currently support tool/function calling, our specialists:
+
+- Process the same message-oriented input stream
+- Use variable templates for prompt construction
+- Allow the model to use its extended computation time
+- Receive markdown-formatted responses
+- No function calling or structured tools needed
+
+This straightforward approach lets us benefit from these models' enhanced reasoning abilities while working within their current limitations.
+
 ## Enhanced Reasoning Architecture
 
 ```mermaid

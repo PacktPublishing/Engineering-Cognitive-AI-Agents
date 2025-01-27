@@ -1,4 +1,4 @@
-"""Test hypothesis generation capabilities for LLM distillation use case."""
+"""Test inquiry design capabilities for LLM distillation use case."""
 
 import tempfile
 from pathlib import Path
@@ -13,8 +13,8 @@ from winston.core.paths import AgentPaths
 from winston.core.reasoning.constants import (
   AGENCY_WORKSPACE_KEY,
 )
-from winston.core.reasoning.hypothesis import (
-  HypothesisAgent,
+from winston.core.reasoning.inquiry import (
+  InquiryAgent,
 )
 from winston.core.system import AgentSystem
 from winston.core.workspace import WorkspaceManager
@@ -26,7 +26,7 @@ class TestArtifacts:
   def __init__(self, artifacts_dir: Path):
     self.artifacts_dir = artifacts_dir
     self.initial_workspace = ""
-    self.generated_hypotheses = ""
+    self.generated_investigation = ""
     self.final_workspace = ""
     self.streaming_content = ""
 
@@ -46,13 +46,14 @@ class TestArtifacts:
         f"Saved initial workspace to: {path}"
       )
 
-    if self.generated_hypotheses:
+    if self.generated_investigation:
       path = (
-        self.artifacts_dir / "generated_hypotheses.md"
+        self.artifacts_dir
+        / "generated_investigation.md"
       )
-      path.write_text(self.generated_hypotheses)
+      path.write_text(self.generated_investigation)
       logger.info(
-        f"Saved generated hypotheses to: {path}"
+        f"Saved generated investigation to: {path}"
       )
 
     if self.final_workspace:
@@ -80,9 +81,9 @@ def test_artifacts() -> TestArtifacts:
       Container for collecting artifacts during the test
   """
   artifacts = TestArtifacts(
-    Path(__file__).parent / "artifacts" / "hypothesis"
+    Path(__file__).parent / "artifacts" / "inquiry"
   )
-  return artifacts  # Remove yield and teardown
+  return artifacts
 
 
 @pytest.fixture
@@ -103,15 +104,13 @@ def temp_workspace() -> Generator[Path, None, None]:
 
 
 @pytest.mark.asyncio
-async def test_llm_distillation_hypothesis(
+async def test_llm_distillation_inquiry(
   test_artifacts: TestArtifacts,
   temp_workspace: Path,
 ) -> None:
-  """Test hypothesis generation for LLM distillation problem."""
+  """Test investigation design for LLM distillation problem."""
   # Setup
-  logger.info(
-    "Starting test_llm_distillation_hypothesis"
-  )
+  logger.info("Starting test_llm_distillation_inquiry")
 
   # Clean up any existing artifacts
   if test_artifacts.artifacts_dir.exists():
@@ -129,56 +128,39 @@ async def test_llm_distillation_hypothesis(
   config = AgentConfig.from_yaml(
     paths.system_agents_config
     / "reasoning"
-    / "hypothesis.yaml"
+    / "inquiry.yaml"
   )
-  agent = HypothesisAgent(system, config, paths)
+  agent = InquiryAgent(system, config, paths)
   workspace_manager = WorkspaceManager()
 
-  # Setup shared agency workspace using coordinator's template
+  # Load the hypothesis test artifacts to get the workspace with hypotheses
+  hypothesis_artifacts_dir = (
+    Path(__file__).parent / "artifacts" / "hypothesis"
+  )
+  hypothesis_workspace = (
+    hypothesis_artifacts_dir / "final_workspace.md"
+  )
+
+  # Setup shared agency workspace using the hypothesis workspace content
   agency_workspace = (
     Path(paths.workspaces) / "reasoning_agency.md"
   )
-  workspace_content = """# Current Problem
-Exploring approaches for distilling reasoning capabilities from large language models into smaller, efficient versions.
+  workspace_content = hypothesis_workspace.read_text()
 
-# Reasoning Stage
-HYPOTHESIS_GENERATION
-
-# Background Knowledge
-- DeepSeek's 800K sample success in preserving reasoning capabilities
-- Previous attempts showed degraded reasoning in compressed models
-- Successful preservation of language capabilities through staged reduction
-
-## Generated Hypotheses
-[Hypotheses will be added here]
-
-## Investigation Design
-[To be designed by inquiry agent]
-
-## Validation Results
-[To be validated]
-
-## Learning Capture
-[To be captured]
-
-## Next Steps
-Generate initial solution hypotheses
-"""
   workspace_manager.initialize_workspace(
     agency_workspace,
     owner_id="reasoning_coordinator",
     content=workspace_content,
   )
 
-  # Save initial workspace and save immediately
+  # Save initial workspace
   test_artifacts.initial_workspace = workspace_content
   test_artifacts.save_artifacts()
 
-  # Test initial hypothesis generation
+  # Test investigation design
   query = (
-    "I want to explore approaches for distilling reasoning capabilities "
-    "from large language models into smaller, more efficient versions. "
-    "Let's analyze DeepSeek's recent breakthrough and design our own approach."
+    "Based on the generated hypotheses about LLM distillation, "
+    "please design specific tests to validate these approaches."
   )
 
   initial_msg = Message(
@@ -189,7 +171,7 @@ Generate initial solution hypotheses
   )
 
   logger.debug(
-    "Starting hypothesis generation for LLM distillation"
+    "Starting investigation design for LLM distillation"
   )
 
   response_count = 0
@@ -213,8 +195,8 @@ Generate initial solution hypotheses
   )
   assert response_count > 0, "No responses processed"
 
-  # Save generated hypotheses and streaming content
-  test_artifacts.generated_hypotheses = (
+  # Save generated investigation and streaming content
+  test_artifacts.generated_investigation = (
     final_response.content
   )
   test_artifacts.streaming_content = "".join(
@@ -231,26 +213,29 @@ Generate initial solution hypotheses
 
   # Verify the updates
   assert (
-    "## Generated Hypotheses" in updated_content
-  ), "Should have Generated Hypotheses section"
+    "## Investigation Design" in updated_content
+  ), "Should have Investigation Design section"
   assert (
-    "[Hypotheses will be added here]"
+    "[To be designed by inquiry agent]"
     not in updated_content
   ), "Should have replaced placeholder"
   assert final_response.content in updated_content, (
     "Final response should be in workspace"
   )
 
-  # Verify hypothesis structure
-  assert "**Hypothesis:**" in updated_content, (
-    "Should have at least one hypothesis"
+  # Verify investigation structure
+  assert "Test Design:" in updated_content, (
+    "Should have at least one test design"
   )
-  assert "**Confidence:**" in updated_content, (
-    "Should include confidence scores"
+  assert "Priority:" in updated_content, (
+    "Should include priority scores"
   )
-  assert "**Evidence:**" in updated_content, (
-    "Should include supporting evidence"
+  assert "Requirements:" in updated_content, (
+    "Should include requirements"
   )
-  assert "**Test Criteria:**" in updated_content, (
-    "Should include test criteria"
+  assert "Success Metrics:" in updated_content, (
+    "Should include success metrics"
+  )
+  assert "Execution Steps:" in updated_content, (
+    "Should include execution steps"
   )

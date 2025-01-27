@@ -168,21 +168,29 @@ class WorkspaceManager:
     workspace_path: Path,
     content: str,
   ) -> None:
-    """Save workspace content."""
+    """Save workspace content to file.
+
+    Parameters
+    ----------
+    workspace_path : Path
+        Path to workspace file
+    content : str
+        Content to save
+    """
     logger.debug(
-      f"Saving workspace to {workspace_path}"
+      f"Saving workspace to: {workspace_path}"
     )
-    try:
-      workspace_path.write_text(content)
-      self._workspaces[workspace_path] = content
-      logger.trace(
-        f"Workspace saved successfully: {workspace_path}"
-      )
-    except Exception as e:
-      logger.exception(
-        f"Failed to save workspace {workspace_path}: {e}"
-      )
-      raise
+    logger.debug(
+      f"Content to save: {content[:200]}..."
+    )
+    workspace_path.parent.mkdir(
+      parents=True, exist_ok=True
+    )
+    workspace_path.write_text(content)
+    self._workspaces[workspace_path] = (
+      content  # Update the cache
+    )
+    logger.debug("Workspace saved successfully")
 
   async def update_workspace(
     self,

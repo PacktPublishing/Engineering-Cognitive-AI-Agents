@@ -1,393 +1,216 @@
-"""Validation Agent: Specialist agent for hypothesis validation.
+"""Validation Agent: Specialist agent for evaluating test results and validating hypotheses.
 
-The Validation Agent plays a crucial role in Winston's reasoning system by evaluating
-evidence against hypotheses and updating confidence levels. This specialist analyzes
-investigation results to validate predictions and refine Winston's understanding.
+The Validation Agent is a key specialist in Winston's enhanced reasoning system,
+responsible for evaluating test results against hypotheses. It operates
+as part of a coordinated reasoning system alongside Hypothesis and Inquiry agents.
 
-Architecture Overview:
-```mermaid
-graph TD
-    VA[Validation Agent] -->|Analyzes| E[Evidence]
-    VA -->|References| H[Hypotheses]
-
-    subgraph "Validation Process"
-        E -->|Evidence Analysis| EA[Evidence Evaluation]
-        H -->|Criteria Check| CC[Success Criteria]
-        H -->|Confidence Update| CU[Confidence Scoring]
-
-        EA --> VD[Validation Decision]
-        CC --> VD
-        CU --> VD
-    end
-
-    VD -->|Updates| CM[Confidence Models]
-    VD -->|Refines| IS[Investigation Strategy]
-
-    CM -->|Informs| HA[Hypothesis Agent]
-    IS -->|Guides| IA[Inquiry Agent]
-```
+Theoretical Foundation:
+The agent implements a core aspect of the Free Energy Principle (FEP) by evaluating
+empirical evidence to update beliefs. Through active inference, it:
+1. Analyzes test results against predictions
+2. Updates confidence levels based on evidence
+3. Identifies needed refinements
+4. Guides learning from outcomes
 
 Design Philosophy:
-The Validation Agent addresses a fundamental challenge in cognitive architectures:
-evaluating evidence to validate or refute hypotheses. This mirrors human cognitive
-processes where we assess new information against our predictions and update our
-understanding accordingly.
-
-Example Scenarios:
-
-1. Direct Validation
-   Input: Evening writing samples show consistent quality increase
-   Hypothesis: "User's creative peak occurs in evening hours"
-   Analysis: Strong correlation between time and quality
-   Result: Increased confidence, refined timing model
-
-2. Pattern Confirmation
-   Input: Emotional topic responses show deeper engagement
-   Hypothesis: "Emotional topics trigger deeper engagement"
-   Analysis: Consistent pattern across multiple samples
-   Result: Hypothesis supported, engagement model updated
-
-3. Tool Impact Assessment
-   Input: Comparative analysis of tool usage
-   Hypothesis: "Visual tools improve ideation process"
-   Analysis: Mixed results across different contexts
-   Result: Hypothesis refined with context specificity
-
-Key Architectural Principles:
-- Focus purely on validation analysis (single responsibility)
-- Provide clear confidence updates
-- Support investigation refinement
-- Enable continuous learning
-
-The specialist's system prompt guides the LLM to:
-1. Evaluate evidence against success criteria
-2. Update confidence levels based on results
-3. Identify investigation improvements
-4. Refine understanding models
-
-This design enables sophisticated validation while maintaining:
-- Clean separation of concerns
-- Evidence-based decisions
-- Continuous improvement
-- Clear confidence tracking
+The agent implements systematic validation by:
+1. Analyzing test results against success criteria
+2. Evaluating evidence quality and relevance
+3. Updating hypothesis confidence levels
+4. Identifying refinement opportunities
 
 Implementation Note:
-While the Validation Agent makes sophisticated evaluations of evidence and
-hypotheses, it performs no direct hypothesis generation or investigation
-design. It simply validates results and updates confidence levels, leaving
-other aspects to appropriate specialists. This separation of concerns ensures
-the agent can focus purely on its validation role while maintaining system
-cohesion.
-"""
+The agent generates validation analyses in markdown format and updates the shared agency
+workspace directly. This allows use of simpler LLMs that don't support tool calling
+while maintaining the structured validation process."""
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
 
-from pydantic import BaseModel, Field
+from loguru import logger
 
-from winston.core.agent import BaseAgent
+from winston.core.agent import (
+  BaseAgent,
+  Message,
+  Response,
+)
+from winston.core.agent_config import AgentConfig
+from winston.core.paths import AgentPaths
+from winston.core.protocols import System
+from winston.core.workspace import WorkspaceManager
 
-from ..agent import Message, Response
-from .types import ReasoningContext
-
-
-class ValidationEvidence(BaseModel):
-  """Evidence collected from an investigation."""
-
-  hypothesis_statement: str = Field(
-    description="The hypothesis being validated"
-  )
-  investigation_results: list[str] = Field(
-    description="Results from the investigation",
-    default_factory=list,
-  )
-  success_criteria_met: list[bool] = Field(
-    description="Whether each success criterion was met",
-    default_factory=list,
-  )
-  unexpected_findings: list[str] = Field(
-    description="Any unexpected observations",
-    default_factory=list,
-  )
-
-
-@dataclass
-class ValidationResult:
-  """Result of validating a single hypothesis."""
-
-  hypothesis_statement: str
-  is_supported: bool
-  confidence_update: (
-    float  # Change in confidence (-1.0 to 1.0)
-  )
-  evidence_for: list[str]
-  evidence_against: list[str]
-
-
-@dataclass
-class ValidationAnalysisResult:
-  """Result of validation analysis process."""
-
-  validations: list[ValidationResult]
-  reasoning: str
+from .constants import AGENCY_WORKSPACE_KEY
 
 
 class ValidationAgent(BaseAgent):
-  """Validates hypotheses using memory and investigation results."""
+  """Evaluates test results and validates hypotheses."""
+
+  def __init__(
+    self,
+    system: System,
+    config: AgentConfig,
+    paths: AgentPaths,
+  ) -> None:
+    super().__init__(system, config, paths)
+    self.workspace_manager = WorkspaceManager()
+
+  def _update_validation_section(
+    self,
+    workspace_content: str,
+    validation_content: str,
+  ) -> str:
+    """Update the Validation Results section in the workspace.
+
+    Parameters
+    ----------
+    workspace_content : str
+        Current workspace content
+    validation_content : str
+        New validation content to insert
+
+    Returns
+    -------
+    str
+        Updated workspace content with new validation section
+    """
+    logger.debug(
+      f"Original workspace content: {workspace_content}"
+    )
+    logger.debug(
+      f"New validation content: {validation_content}"
+    )
+
+    # Find the section
+    start = workspace_content.find(
+      "## Validation Results"
+    )
+    if start == -1:
+      # Add new section if not found
+      logger.debug(
+        "No Validation Results section found, adding new one"
+      )
+      return (
+        workspace_content
+        + "\n\n## Validation Results\n\n"
+        + validation_content
+      )
+
+    # Find the next section to determine where this section ends
+    end = workspace_content.find("\n##", start + 2)
+    if end == -1:
+      end = len(workspace_content)
+
+    logger.debug(
+      f"Found Validation Results section from {start} to {end}"
+    )
+    logger.debug(
+      f"Original section content: {workspace_content[start:end]}"
+    )
+
+    # Replace the entire section with new content
+    updated = (
+      workspace_content[:start]
+      + "## Validation Results\n\n"
+      + validation_content
+      + "\n\n"
+      + workspace_content[end:]
+    )
+
+    logger.debug(f"Final updated content: {updated}")
+    return updated
+
+  def _update_workspace_and_respond(
+    self,
+    workspace_content: str,
+    content: str,
+    agency_workspace: Path,
+  ) -> Response:
+    """Update workspace with new content and create final response.
+
+    Parameters
+    ----------
+    workspace_content : str
+        Current workspace content
+    content : str
+        Content to add to workspace
+    agency_workspace : Path
+        Path to agency workspace
+
+    Returns
+    -------
+    Response
+        Final non-streaming response
+    """
+    # Update workspace with content
+    updated_content = self._update_validation_section(
+      workspace_content,
+      content,
+    )
+    logger.debug("Workspace updated with new content")
+
+    self.workspace_manager.save_workspace(
+      agency_workspace, updated_content
+    )
+    logger.debug("Saved updated workspace")
+
+    # Return final non-streaming response
+    return Response(
+      content=content,
+      metadata={"streaming": False},
+    )
 
   async def process(
-    self, message: Message
-  ) -> AsyncIterator[Response]:
-    """Process with memory-enhanced validation."""
-
-    # Extract reasoning context
-    context: ReasoningContext = message.metadata[
-      "reasoning_context"
-    ]
-    hypotheses = message.metadata.get("hypotheses", [])
-    investigation_plans = message.metadata.get(
-      "investigation_plans", []
-    )
-
-    # Validate hypotheses using memory context
-    result = await self._validate_hypotheses(
-      message,
-      context,
-      hypotheses,
-      investigation_plans,
-    )
-
-    # Yield the structured result
-    yield Response(
-      content=result.reasoning,
-      metadata={
-        **message.metadata,
-        "validation_results": [
-          vars(v) for v in result.validations
-        ],
-      },
-    )
-
-  async def _validate_hypotheses(
     self,
     message: Message,
-    context: ReasoningContext,
-    hypotheses: list[dict[str, Any]],
-    investigation_plans: list[dict[str, Any]],
-  ) -> ValidationAnalysisResult:
-    """Validate hypotheses using memory context."""
-
-    # Extract relevant experiences
-    similar_experiences = (
-      context.memory.similar_experiences
-    )
-    current_episode = context.memory.current_episode
-    workspace = context.memory.working_memory
-
-    # Build prompt incorporating memory context
-    prompt = self._build_memory_enhanced_prompt(
-      message.content,
-      hypotheses,
-      investigation_plans,
-      similar_experiences,
-      current_episode,
-      workspace,
+  ) -> AsyncIterator[Response]:
+    """Process with workspace-based validation."""
+    # Get agency workspace path from message
+    agency_workspace = Path(
+      message.metadata[AGENCY_WORKSPACE_KEY]
     )
 
-    # Get completion from LLM
-    completion = await self.system.llm.complete(prompt)
-
-    # Parse completion into validation results
-    validations = self._parse_validations(completion)
-
-    return ValidationAnalysisResult(
-      validations=validations,
-      reasoning=completion,
-    )
-
-  def _build_memory_enhanced_prompt(
-    self,
-    query: str,
-    hypotheses: list[dict[str, Any]],
-    investigation_plans: list[dict[str, Any]],
-    similar_experiences: list[Any],
-    current_episode: Any,
-    workspace: Any,
-  ) -> str:
-    """Build prompt incorporating memory context."""
-
-    # Format hypotheses and investigations
-    context_sections = []
-
-    # Add hypotheses
-    hypothesis_context = "\n".join(
-      f"- Hypothesis: {h['statement']} (Confidence: {h['confidence']}, Impact: {h['impact']})"
-      for h in hypotheses
-    )
-    context_sections.append(
-      f"Current Hypotheses:\n{hypothesis_context}"
-    )
-
-    # Add investigation plans
-    if investigation_plans:
-      plan_context = "\n".join(
-        f"- Plan for '{p['hypothesis_statement']}':\n  "
-        f"Steps: {len(p['steps'])}, "
-        f"Info Gain: {p['information_gain']}, "
-        f"Cost: {p['resource_cost']}"
-        for p in investigation_plans
+    # Load workspace content
+    workspace_content = (
+      self.workspace_manager.load_workspace(
+        agency_workspace
       )
-      context_sections.append(
-        f"Investigation Plans:\n{plan_context}"
+    )
+
+    # Track accumulated content from streaming responses
+    accumulated_content: list[str] = []
+
+    # Generate validation analysis using LLM
+    async for response in self._handle_conversation(
+      Message(
+        content=message.content,
+        metadata={
+          "workspace_content": workspace_content
+        },
+      )
+    ):
+      if response.metadata.get("streaming"):
+        accumulated_content.append(response.content)
+        yield response
+        continue
+
+      logger.debug("Processing non-streaming response")
+      logger.debug(
+        f"Response content: {response.content}"
       )
 
-    # Add similar experiences
-    experience_context = "\n".join(
-      f"- Previous similar validation: {exp.content}"
-      for exp in similar_experiences
-    )
-    context_sections.append(
-      f"Previous Experiences:\n{experience_context}"
-    )
-
-    # Add current episode context
-    context_sections.append(
-      f"Current context: {current_episode.summary}"
-    )
-
-    # Add workspace state
-    context_sections.append(
-      f"Working memory state: {workspace.summary}"
-    )
-
-    # Combine all context sections
-    full_context = "\n\n".join(context_sections)
-
-    # Build full prompt
-    return f"""Given the following context:
-
-{full_context}
-
-And the current query:
-{query}
-
-Validate each hypothesis considering:
-1. Evidence from investigations
-2. Similar past experiences
-3. Current context
-4. Logical consistency
-5. Alternative explanations
-
-For each hypothesis, provide:
-- Whether it is supported
-- Change in confidence (-1 to +1)
-- Supporting evidence
-- Contradicting evidence
-
-Format as:
-Hypothesis: <statement>
-Supported: <yes/no>
-Confidence Change: <score>
-Evidence For:
-- <point 1>
-- <point 2>
-Evidence Against:
-- <point 1>
-- <point 2>
-...
-
-Validate all hypotheses, ordered by original impact * confidence."""
-
-  def _parse_validations(
-    self, completion: str
-  ) -> list[ValidationResult]:
-    """Parse completion into structured validation results."""
-
-    validations = []
-    current_validation = None
-    evidence_for = []
-    evidence_against = []
-
-    for line in completion.split("\n"):
-      line = line.strip()
-
-      if line.startswith("Hypothesis:"):
-        # Save previous validation if exists
-        if current_validation:
-          validations.append(
-            ValidationResult(
-              hypothesis_statement=current_validation[
-                "statement"
-              ],
-              is_supported=current_validation[
-                "supported"
-              ],
-              confidence_update=current_validation[
-                "confidence_change"
-              ],
-              evidence_for=evidence_for,
-              evidence_against=evidence_against,
-            )
-          )
-
-        # Start new validation
-        current_validation = {
-          "statement": line.replace(
-            "Hypothesis:", ""
-          ).strip()
-        }
-        evidence_for = []
-        evidence_against = []
-
-      elif line.startswith("Supported:"):
-        if current_validation:
-          current_validation["supported"] = (
-            line.replace("Supported:", "")
-            .strip()
-            .lower()
-            == "yes"
-          )
-
-      elif line.startswith("Confidence Change:"):
-        if current_validation:
-          current_validation["confidence_change"] = (
-            float(
-              line.replace(
-                "Confidence Change:", ""
-              ).strip()
-            )
-          )
-
-      elif line == "Evidence For:":
-        collecting_for = True
-        collecting_against = False
-
-      elif line == "Evidence Against:":
-        collecting_for = False
-        collecting_against = True
-
-      elif line.startswith("-"):
-        evidence = line.replace("-", "").strip()
-        if collecting_for:
-          evidence_for.append(evidence)
-        elif collecting_against:
-          evidence_against.append(evidence)
-
-    # Add final validation
-    if current_validation:
-      validations.append(
-        ValidationResult(
-          hypothesis_statement=current_validation[
-            "statement"
-          ],
-          is_supported=current_validation["supported"],
-          confidence_update=current_validation[
-            "confidence_change"
-          ],
-          evidence_for=evidence_for,
-          evidence_against=evidence_against,
-        )
+      # Handle non-streaming response
+      yield self._update_workspace_and_respond(
+        workspace_content,
+        response.content,
+        agency_workspace,
       )
+      return
 
-    return validations
+    # If we only got streaming responses, send a final non-streaming response
+    if accumulated_content:
+      final_content = "".join(accumulated_content)
+      yield self._update_workspace_and_respond(
+        workspace_content,
+        final_content,
+        agency_workspace,
+      )

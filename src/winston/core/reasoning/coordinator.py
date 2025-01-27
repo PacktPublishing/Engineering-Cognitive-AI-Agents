@@ -233,13 +233,15 @@ class EnhancedReasoningCoordinator(BaseAgent):
       },
     )
 
-    async for (
-      response
-    ) in self.system.invoke_conversation(
+    # Get the async iterator from invoke_conversation
+    responses = await self.system.invoke_conversation(
       "memory_coordinator",
       memory_message.content,
       context=memory_message.metadata,
-    ):
+    )
+
+    # Now iterate over the responses
+    async for response in responses:
       yield response
 
   async def _needs_user_input(
@@ -247,14 +249,7 @@ class EnhancedReasoningCoordinator(BaseAgent):
     message: Message,
     workspace_content: str,
   ) -> bool:
-    """Determine if we need to consult user.
-
-    Checks:
-    - If we have enough information to proceed
-    - If we need clarification
-    - If we need to validate approach
-    - If we need to confirm success
-    """
+    """Determine if we need to consult user."""
     # TODO: Implement user input determination logic
     return False
 
@@ -264,14 +259,7 @@ class EnhancedReasoningCoordinator(BaseAgent):
     workspace_content: str,
     stage: ReasoningStage,
   ) -> None:
-    """Update memory with insights based on stage.
-
-    Different updates for:
-    - New problem patterns identified
-    - Successful solution approaches
-    - Effective validation strategies
-    - Final learnings when problem solved
-    """
+    """Update memory with insights based on stage."""
     if stage == ReasoningStage.PROBLEM_SOLVED:
       memory_message = Message(
         content=f"""Please analyze and store key learnings from this solved problem:
@@ -291,14 +279,16 @@ Current State: {workspace_content}""",
         },
       )
 
-    async for (
-      response
-    ) in self.system.invoke_conversation(
+    # Get the async iterator from invoke_conversation
+    responses = await self.system.invoke_conversation(
       "memory_coordinator",
       memory_message.content,
       context=memory_message.metadata,
-    ):
-      if not response.metadata.get("streaming"):
+    )
+
+    # Now iterate over the responses
+    async for response in responses:
+      if not response.metadata.get("streaming", True):
         break
 
   async def process(

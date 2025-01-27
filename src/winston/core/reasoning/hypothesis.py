@@ -1,112 +1,49 @@
-"""Hypothesis Agent: Specialist agent for prediction generation.
+"""Hypothesis Agent: Specialist agent for solution generation and analysis.
 
-The Hypothesis Agent implements a key aspect of the Free Energy Principle (FEP) by generating
-testable predictions to reduce uncertainty. When faced with new situations or unclear
-relationships, it proposes explanatory hypotheses that can be tested to improve understanding.
+The Hypothesis Agent is a key specialist in Winston's enhanced reasoning system,
+responsible for analyzing problems and generating potential solutions. It operates
+as part of a coordinated reasoning system alongside Inquiry and Validation agents.
+
+Theoretical Foundation:
+The agent implements a core aspect of the Free Energy Principle (FEP) by generating
+testable predictions to reduce uncertainty. Through active inference, it:
+1. Identifies areas of uncertainty in current understanding
+2. Proposes specific, testable explanations
+3. Enables empirical validation through other specialists
+4. Supports learning from outcomes
 
 Design Philosophy:
-The Hypothesis Agent addresses a fundamental challenge in cognitive architectures: reducing
-uncertainty through testable predictions. Following FEP, it generates predictions that:
-1. Identify areas of uncertainty in current understanding
-2. Propose specific, testable explanations
-3. Enable active inference through the Inquiry Agent
-4. Support learning through the Validation Agent
-
-Example Scenarios:
-
-1. Technical Understanding
-   Input: New approach to LLM distillation shows unexpected performance
-   Uncertainty: Why the approach works better than previous methods
-   Hypothesis: "Preserving reasoning traces during distillation maintains key capabilities"
-   Testable via: Comparing reasoning path preservation across methods
-
-2. User Interaction
-   Input: User consistently modifies suggested code in particular ways
-   Uncertainty: Underlying preferences in code style/approach
-   Hypothesis: "User prefers explicit error handling over concise code"
-   Testable via: Varying code suggestion styles
-
-3. System Behavior
-   Input: Certain tool combinations yield better results
-   Uncertainty: Why these combinations are more effective
-   Hypothesis: "Sequential tool use allows refinement of intermediate results"
-   Testable via: Controlled tool sequence experiments
-
-Key Principles:
-- Focus on identifying and reducing uncertainty
-- Generate specific, testable predictions
-- Enable empirical validation
-- Support continuous learning
-
-The specialist's system prompt guides the LLM to:
-1. Identify areas of uncertainty
-2. Generate testable predictions
-3. Specify validation criteria
-4. Prioritize by potential impact
-
-This design enables systematic uncertainty reduction while maintaining:
-- Clear testability of predictions
-- Empirical validation paths
-- Learning opportunities
-- Integration with FEP-based cognition
+The agent implements systematic problem analysis and solution generation by:
+1. Analyzing problem context and constraints from workspace content
+2. Drawing on relevant past experiences through memory integration
+3. Generating and prioritizing potential solutions
+4. Providing clear validation criteria for testing
 
 Implementation Note:
-The Hypothesis Agent focuses purely on generating testable predictions about areas
-of uncertainty. It works with the Inquiry Agent (which designs investigations) and
-the Validation Agent (which evaluates evidence) to implement the full FEP cycle
-of prediction, testing, and learning."""
+The agent generates hypotheses in markdown format and updates the shared agency
+workspace directly. This allows use of simpler LLMs that don't support tool calling
+while maintaining the structured hypothesis generation process."""
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from pathlib import Path
 
-from pydantic import BaseModel, Field
+from loguru import logger
 
-from winston.core.agent import BaseAgent
+from winston.core.agent import (
+  BaseAgent,
+  Message,
+  Response,
+)
 from winston.core.agent_config import AgentConfig
 from winston.core.paths import AgentPaths
 from winston.core.protocols import System
-from winston.core.tools import Tool
+from winston.core.workspace import WorkspaceManager
 
-from ..agent import Message, Response
-from .types import ReasoningContext
-
-
-@dataclass
-class Hypothesis:
-  """A testable proposition with confidence and impact scores."""
-
-  statement: str
-  confidence: float  # 0.0 to 1.0
-  impact: float  # 0.0 to 1.0
-  evidence: list[str]
-
-
-class GenerateHypothesesRequest(BaseModel):
-  """Request to generate hypotheses."""
-
-  query: str = Field(
-    description="The query to generate hypotheses for"
-  )
-  similar_experiences: list[str] = Field(
-    description="List of similar past experiences"
-  )
-  current_context: str = Field(
-    description="Current episode context"
-  )
-  workspace_state: str = Field(
-    description="Current workspace state"
-  )
-
-
-class GenerateHypothesesResponse(BaseModel):
-  """Response containing generated hypotheses."""
-
-  hypotheses: list[Hypothesis]
-  reasoning: str
+from .constants import AGENCY_WORKSPACE_KEY
 
 
 class HypothesisAgent(BaseAgent):
-  """Generates hypotheses informed by memory and experience."""
+  """Generates hypotheses informed by workspace state."""
 
   def __init__(
     self,
@@ -115,119 +52,165 @@ class HypothesisAgent(BaseAgent):
     paths: AgentPaths,
   ) -> None:
     super().__init__(system, config, paths)
+    self.workspace_manager = WorkspaceManager()
 
-    # Register the hypothesis generation tool
-    tool = Tool(
-      name="generate_hypotheses",
-      description="Generate testable hypotheses based on context and experiences",
-      handler=self._handle_generate_hypotheses,
-      input_model=GenerateHypothesesRequest,
-      output_model=GenerateHypothesesResponse,
+  def _update_hypotheses_section(
+    self,
+    workspace_content: str,
+    hypotheses_content: str,
+  ) -> str:
+    """Update the Generated Hypotheses section in the workspace.
+
+    Parameters
+    ----------
+    workspace_content : str
+        Current workspace content
+    hypotheses_content : str
+        New hypotheses content to insert
+
+    Returns
+    -------
+    str
+        Updated workspace content with new hypotheses section
+    """
+    logger.debug(
+      f"Original workspace content: {workspace_content}"
     )
-    self.system.register_tool(tool)
-    self.system.grant_tool_access(self.id, [tool.name])
-
-  async def process(
-    self, message: Message
-  ) -> AsyncIterator[Response]:
-    """Process with memory-enhanced hypothesis generation."""
-    # Extract reasoning context
-    context: ReasoningContext = message.metadata[
-      "reasoning_context"
-    ]
-
-    # Prepare the request
-    request = GenerateHypothesesRequest(
-      query=message.content,
-      similar_experiences=[
-        exp.content
-        for exp in context.memory.similar_experiences
-      ],
-      current_context=context.memory.current_episode.summary,
-      workspace_state=context.memory.working_memory.summary,
+    logger.debug(
+      f"New hypotheses content: {hypotheses_content}"
     )
 
-    # Let BaseAgent handle the conversation using system prompt
-    async for response in self._handle_conversation(
-      message
-    ):
-      yield response
-
-  async def _handle_generate_hypotheses(
-    self, request: GenerateHypothesesRequest
-  ) -> GenerateHypothesesResponse:
-    """Handle hypothesis generation request."""
-    # Parse the LLM completion into structured hypotheses
-    hypotheses = self._parse_hypotheses(
-      self.state.last_response
+    # Find the section
+    start = workspace_content.find(
+      "## Generated Hypotheses"
     )
-
-    return GenerateHypothesesResponse(
-      hypotheses=hypotheses,
-      reasoning=self.state.last_response,
-    )
-
-  def _parse_hypotheses(
-    self, completion: str
-  ) -> list[Hypothesis]:
-    """Parse completion into structured hypotheses."""
-    hypotheses = []
-    current_hypothesis = None
-    current_evidence = []
-
-    for line in completion.split("\n"):
-      line = line.strip()
-
-      if line.startswith("Hypothesis:"):
-        # Save previous hypothesis if exists
-        if current_hypothesis:
-          hypotheses.append(
-            Hypothesis(
-              statement=current_hypothesis[
-                "statement"
-              ],
-              confidence=current_hypothesis[
-                "confidence"
-              ],
-              impact=current_hypothesis["impact"],
-              evidence=current_evidence,
-            )
-          )
-
-        # Start new hypothesis
-        current_hypothesis = {
-          "statement": line.replace(
-            "Hypothesis:", ""
-          ).strip()
-        }
-        current_evidence = []
-
-      elif line.startswith("Confidence:"):
-        if current_hypothesis:
-          current_hypothesis["confidence"] = float(
-            line.replace("Confidence:", "").strip()
-          )
-
-      elif line.startswith("Impact:"):
-        if current_hypothesis:
-          current_hypothesis["impact"] = float(
-            line.replace("Impact:", "").strip()
-          )
-
-      elif line.startswith("-") and current_hypothesis:
-        current_evidence.append(
-          line.replace("-", "").strip()
-        )
-
-    # Add final hypothesis
-    if current_hypothesis:
-      hypotheses.append(
-        Hypothesis(
-          statement=current_hypothesis["statement"],
-          confidence=current_hypothesis["confidence"],
-          impact=current_hypothesis["impact"],
-          evidence=current_evidence,
-        )
+    if start == -1:
+      # Add new section if not found
+      logger.debug(
+        "No Generated Hypotheses section found, adding new one"
+      )
+      return (
+        workspace_content
+        + "\n\n## Generated Hypotheses\n\n"
+        + hypotheses_content
       )
 
-    return hypotheses
+    # Find the next section to determine where this section ends
+    end = workspace_content.find("\n##", start + 2)
+    if end == -1:
+      end = len(workspace_content)
+
+    logger.debug(
+      f"Found Generated Hypotheses section from {start} to {end}"
+    )
+    logger.debug(
+      f"Original section content: {workspace_content[start:end]}"
+    )
+
+    # Replace the entire section with new content
+    updated = (
+      workspace_content[:start]
+      + "## Generated Hypotheses\n\n"
+      + hypotheses_content
+      + "\n\n"
+      + workspace_content[end:]
+    )
+
+    logger.debug(f"Final updated content: {updated}")
+    return updated
+
+  def _update_workspace_and_respond(
+    self,
+    workspace_content: str,
+    content: str,
+    agency_workspace: Path,
+  ) -> Response:
+    """Update workspace with new content and create final response.
+
+    Parameters
+    ----------
+    workspace_content : str
+        Current workspace content
+    content : str
+        Content to add to workspace
+    agency_workspace : Path
+        Path to agency workspace
+
+    Returns
+    -------
+    Response
+        Final non-streaming response
+    """
+    # Update workspace with content
+    updated_content = self._update_hypotheses_section(
+      workspace_content,
+      content,
+    )
+    logger.debug("Workspace updated with new content")
+
+    self.workspace_manager.save_workspace(
+      agency_workspace, updated_content
+    )
+    logger.debug("Saved updated workspace")
+
+    # Return final non-streaming response
+    return Response(
+      content=content,
+      metadata={"streaming": False},
+    )
+
+  async def process(
+    self,
+    message: Message,
+  ) -> AsyncIterator[Response]:
+    """Process with workspace-based hypothesis generation."""
+    # Get agency workspace path from message
+    agency_workspace = Path(
+      message.metadata[AGENCY_WORKSPACE_KEY]
+    )
+
+    # Load workspace content
+    workspace_content = (
+      self.workspace_manager.load_workspace(
+        agency_workspace
+      )
+    )
+
+    # Track accumulated content from streaming responses
+    accumulated_content: list[str] = []
+
+    # Generate hypotheses using LLM
+    async for response in self._handle_conversation(
+      Message(
+        content=message.content,
+        metadata={
+          "workspace_content": workspace_content
+        },
+      )
+    ):
+      if response.metadata.get("streaming"):
+        accumulated_content.append(response.content)
+        yield response
+        continue
+
+      logger.debug("Processing non-streaming response")
+      logger.debug(
+        f"Response content: {response.content}"
+      )
+
+      # Handle non-streaming response
+      yield self._update_workspace_and_respond(
+        workspace_content,
+        response.content,
+        agency_workspace,
+      )
+      return
+
+    # If we only got streaming responses, send a final non-streaming response
+    if accumulated_content:
+      final_content = "".join(accumulated_content)
+      yield self._update_workspace_and_respond(
+        workspace_content,
+        final_content,
+        agency_workspace,
+      )
