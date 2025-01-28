@@ -211,8 +211,7 @@ class StorageRequest(BaseModel):
     default=None,
     description="ID of knowledge to update (for updates only)",
   )
-  semantic_metadata: str | None = Field(
-    default=None,
+  semantic_metadata: str = Field(
     description="JSON-encoded dictionary of key:value pairs for filtering",
   )
   preserve_history: bool = Field(
@@ -314,9 +313,9 @@ class StorageSpecialist(BaseAgent):
           raise ValueError(
             "Expected metadata to be a dictionary"
           )
-        logger.debug(
-          f"Parsed metadata: {json.dumps(metadata, indent=2)}"
-        )
+          logger.debug(
+            f"Parsed metadata: {json.dumps(metadata, indent=2)}"
+          )
 
       if request.action == KnowledgeActionType.CREATE:
         logger.info("Processing CREATE action")

@@ -7,10 +7,19 @@ system_prompt: |
 
   Given:
   1. Current Observation:
+  <observation>
   {{ content }}
+  </observation>
 
   2. Retrieved Knowledge:
+  <knowledge>
   {{ retrieved_content }}
+  </knowledge>
+
+  3. Semantic Metadata:
+  <metadata>
+  {{ semantic_metadata }}
+  </metadata>
 
   Analyze and take appropriate actions:
 

@@ -77,9 +77,14 @@ Key Principles:
 - Support iterative problem-solving
 """
 
+import json
 from collections.abc import AsyncIterator
-from enum import Enum, auto
+from enum import StrEnum, auto
 from pathlib import Path
+from typing import cast
+
+from loguru import logger
+from pydantic import BaseModel, Field
 
 from winston.core.agent import (
   AgentConfig,
@@ -89,6 +94,7 @@ from winston.core.agent import (
   Response,
 )
 from winston.core.system import AgentSystem
+from winston.core.tools import Tool
 from winston.core.workspace import WorkspaceManager
 
 from .constants import AGENCY_WORKSPACE_KEY
@@ -97,16 +103,36 @@ from .inquiry import InquiryAgent
 from .validation import ValidationAgent
 
 
-class ReasoningStage(Enum):
+class ReasoningStage(StrEnum):
   """Current stage in the reasoning process."""
 
-  INITIAL_ANALYSIS = auto()
   HYPOTHESIS_GENERATION = auto()
   INQUIRY_DESIGN = auto()
   VALIDATION = auto()
   NEEDS_USER_INPUT = auto()
   PROBLEM_SOLVED = auto()
   PROBLEM_UNSOLVABLE = auto()
+
+
+class ReasoningDecision(BaseModel):
+  """The coordinator's decision about the current reasoning state and next steps."""
+
+  requires_context_reset: bool = Field(
+    ...,
+    description="Whether the current reasoning context needs to be reset for a new problem",
+  )
+  next_stage: ReasoningStage = Field(
+    ...,
+    description="The next reasoning stage to execute",
+  )
+  workspace_updates: str = Field(
+    ...,
+    description="Updates to make to workspace sections before proceeding",
+  )
+  explanation: str = Field(
+    ...,
+    description="Explanation of the reasoning behind this decision",
+  )
 
 
 class EnhancedReasoningCoordinator(BaseAgent):
@@ -129,36 +155,116 @@ class EnhancedReasoningCoordinator(BaseAgent):
     # Initialize reasoning specialists with agency workspace
     self.hypothesis_agent = HypothesisAgent(
       system,
-      config,
+      AgentConfig.from_yaml(
+        paths.system_agents_config
+        / "reasoning"
+        / "hypothesis.yaml"
+      ),
       paths,
     )
     self.inquiry_agent = InquiryAgent(
       system,
-      config,
+      AgentConfig.from_yaml(
+        paths.system_agents_config
+        / "reasoning"
+        / "inquiry.yaml"
+      ),
       paths,
     )
     self.validation_agent = ValidationAgent(
       system,
-      config,
+      AgentConfig.from_yaml(
+        paths.system_agents_config
+        / "reasoning"
+        / "validation.yaml"
+      ),
       paths,
     )
 
-  async def _determine_reasoning_stage(
-    self,
-    message: Message,
-    workspace_content: str,
-  ) -> ReasoningStage:
-    """Determine current reasoning stage and next steps.
+    # Register the reasoning decision tool
+    tool = Tool(
+      name="handle_reasoning_decision",
+      description="Handle and apply a reasoning decision, including any workspace updates, and return the validated decision",
+      handler=self._handle_reasoning_decision,
+      input_model=ReasoningDecision,
+      output_model=ReasoningDecision,
+    )
+    self.system.register_tool(tool)
+    self.system.grant_tool_access(self.id, [tool.name])
 
-    Analyzes workspace content and message to determine:
-    - If this is a new/different problem (context switch)
-    - Current stage in reasoning process
-    - Whether we need user input
-    - If problem is solved or unsolvable
+  async def _apply_workspace_updates(
+    self, updates: str
+  ) -> None:
+    """Apply updates to the workspace content.
+
+    Parameters
+    ----------
+    updates : str
+        String containing section updates in format:
+        "section_name: content\n---\nsection_name2: content2"
     """
-    # TODO: Implement stage determination logic
-    # For now, always start at initial analysis
-    return ReasoningStage.INITIAL_ANALYSIS
+    if not updates.strip():
+      return
+
+    current_content = (
+      self.workspace_manager.load_workspace(
+        self.agency_workspace
+      )
+    )
+
+    # Parse updates string into section updates
+    sections = updates.split("\n---\n")
+    for section in sections:
+      if ":" not in section:
+        continue
+      section_name, content = section.split(":", 1)
+      section_name = section_name.strip()
+      content = content.strip()
+
+      # Replace section placeholder with new content
+      current_content = current_content.replace(
+        f"[{section_name}]",
+        content,
+      )
+
+    self.workspace_manager.save_workspace(
+      self.agency_workspace,
+      current_content,
+    )
+
+  async def _handle_reasoning_decision(
+    self,
+    decision: ReasoningDecision,
+  ) -> ReasoningDecision:
+    """Handle and apply a reasoning decision.
+
+    Parameters
+    ----------
+    decision : ReasoningDecision
+        The reasoning decision to process
+
+    Returns
+    -------
+    ReasoningDecision
+        The validated decision after processing
+    """
+    logger.debug(
+      f"Handling reasoning decision: {decision.model_dump_json(indent=2)}"
+    )
+
+    if decision.workspace_updates:
+      logger.debug(
+        f"Applying workspace updates: {decision.workspace_updates}"
+      )
+      await self._apply_workspace_updates(
+        decision.workspace_updates
+      )
+    return decision
+
+  async def _cleanup_workspace(self) -> None:
+    """Clean up workspace for a new problem context."""
+    # TODO: Implement cleanup logic
+    pass
 
   async def _prepare_reasoning_workspace(
     self,
@@ -166,92 +272,22 @@ class EnhancedReasoningCoordinator(BaseAgent):
   ) -> None:
     """Prepare reasoning workspace for current stage.
 
-    - Checks if current problem vs new problem
-    - Maintains or resets workspace based on context
-    - Updates reasoning state markers
+    - Initializes fresh workspace using template
+    - Sets up initial problem context
     """
-    current_content = (
-      self.workspace_manager.load_workspace(
+    template = (
+      self.workspace_manager.get_workspace_template(
         self.agency_workspace
       )
     )
-
-    # Determine if this is a new problem/context switch
-    current_stage = (
-      await self._determine_reasoning_stage(
-        message,
-        current_content,
-      )
+    self.workspace_manager.initialize_workspace(
+      self.agency_workspace,
+      owner_id=self.id,
+      content=template.format(
+        problem_statement=message.content,
+        stage=ReasoningStage.HYPOTHESIS_GENERATION.name,
+      ),
     )
-
-    if (
-      current_stage == ReasoningStage.INITIAL_ANALYSIS
-    ):
-      # Initialize fresh workspace using registered template
-      template = (
-        self.workspace_manager.get_workspace_template(
-          self.agency_workspace
-        )
-      )
-      self.workspace_manager.initialize_workspace(
-        self.agency_workspace,
-        owner_id=self.id,
-        content=template.format(
-          problem_statement=message.content,
-          stage=current_stage.name,
-        ),
-      )
-
-  async def _gather_relevant_knowledge(
-    self,
-    message: Message,
-    current_stage: ReasoningStage,
-  ) -> AsyncIterator[Response]:
-    """Get relevant knowledge based on reasoning stage."""
-    # Customize query based on stage
-    query = message.content
-    if (
-      current_stage == ReasoningStage.INITIAL_ANALYSIS
-    ):
-      query = f"Find similar problems and their solutions: {message.content}"
-    elif (
-      current_stage
-      == ReasoningStage.HYPOTHESIS_GENERATION
-    ):
-      query = f"Find successful solution approaches for: {message.content}"
-    elif (
-      current_stage == ReasoningStage.INQUIRY_DESIGN
-    ):
-      query = f"Find effective validation strategies for: {message.content}"
-    elif current_stage == ReasoningStage.VALIDATION:
-      query = f"Find relevant success criteria and lessons learned for: {message.content}"
-
-    memory_message = Message(
-      content=query,
-      metadata={
-        "shared_workspace": self.workspace_path,
-      },
-    )
-
-    # Get the async iterator from invoke_conversation
-    responses = await self.system.invoke_conversation(
-      "memory_coordinator",
-      memory_message.content,
-      context=memory_message.metadata,
-    )
-
-    # Now iterate over the responses
-    async for response in responses:
-      yield response
-
-  async def _needs_user_input(
-    self,
-    message: Message,
-    workspace_content: str,
-  ) -> bool:
-    """Determine if we need to consult user."""
-    # TODO: Implement user input determination logic
-    return False
 
   async def _update_memory_with_learnings(
     self,
@@ -259,7 +295,18 @@ class EnhancedReasoningCoordinator(BaseAgent):
     workspace_content: str,
     stage: ReasoningStage,
   ) -> None:
-    """Update memory with insights based on stage."""
+    """
+    Update memory with learnings from the current stage.
+
+    Parameters
+    ----------
+    message : Message
+        The original user message
+    workspace_content : str
+        Current workspace content
+    stage : ReasoningStage
+        Current reasoning stage
+    """
     if stage == ReasoningStage.PROBLEM_SOLVED:
       memory_message = Message(
         content=f"""Please analyze and store key learnings from this solved problem:
@@ -267,6 +314,13 @@ Problem: {message.content}
 Solution Process: {workspace_content}""",
         metadata={
           "shared_workspace": self.workspace_path,
+          "semantic_metadata": json.dumps(
+            {
+              "reasoning_stage": stage.name,
+              "content_type": "solution",
+              "problem_type": "solved",
+            }
+          ),
         },
       )
     else:
@@ -276,18 +330,25 @@ Problem: {message.content}
 Current State: {workspace_content}""",
         metadata={
           "shared_workspace": self.workspace_path,
+          "semantic_metadata": json.dumps(
+            {
+              "reasoning_stage": stage.name,
+              "content_type": "interim_learning",
+              "problem_type": "in_progress",
+            }
+          ),
         },
       )
 
-    # Get the async iterator from invoke_conversation
-    responses = await self.system.invoke_conversation(
-      "memory_coordinator",
-      memory_message.content,
-      context=memory_message.metadata,
-    )
-
-    # Now iterate over the responses
-    async for response in responses:
+    # Process responses from memory coordinator
+    async for response in cast(
+      AsyncIterator[Response],
+      self.system.invoke_conversation(
+        "memory_coordinator",
+        memory_message.content,
+        context=memory_message.metadata,
+      ),
+    ):
       if not response.metadata.get("streaming", True):
         break
 
@@ -295,100 +356,180 @@ Current State: {workspace_content}""",
     self,
     message: Message,
   ) -> AsyncIterator[Response]:
-    """Process with dynamic reasoning based on current stage."""
+    """Process messages to coordinate reasoning operations.
 
-    # 1. Determine current reasoning stage
+    The LLM will automatically use the handle_reasoning_decision tool
+    due to required_tool in config. The tool handler validates and applies
+    workspace updates, while this method handles the flow control and
+    specialist dispatching.
+    """
+    # Get current workspace content
     current_content = (
       self.workspace_manager.load_workspace(
         self.agency_workspace
       )
     )
-    current_stage = (
-      await self._determine_reasoning_stage(
-        message,
-        current_content,
+
+    # Let the LLM evaluate the message using system prompt and tools
+    async for response in self._handle_conversation(
+      Message(
+        content=message.content,
+        metadata={
+          "current_workspace": current_content,
+        },
       )
-    )
-
-    # 2. Prepare/update workspace for current stage
-    await self._prepare_reasoning_workspace(message)
-
-    # 3. Get relevant knowledge for current stage
-    async for (
-      knowledge
-    ) in self._gather_relevant_knowledge(
-      message,
-      current_stage,
     ):
-      if knowledge.metadata.get("streaming"):
-        yield knowledge
+      if response.metadata.get("streaming"):
+        yield response
         continue
-      # Update workspace with stage-appropriate knowledge
-      current_content = (
+
+      logger.debug(
+        f"Reasoning decision: {response.content}"
+      )
+
+      # Tool has been executed, response contains the decision
+      decision = ReasoningDecision.model_validate_json(
+        response.content
+      )
+
+      # Get updated workspace content after decision
+      updated_content = (
         self.workspace_manager.load_workspace(
           self.agency_workspace
         )
       )
-      self.workspace_manager.save_workspace(
-        self.agency_workspace,
-        current_content.replace(
-          "[Knowledge from memory about similar problems/solutions]",
-          knowledge.content,
-        ),
+
+      # Yield the reasoning decision with workspace content
+      yield Response(
+        content=f"Moving to stage: {decision.next_stage}",
+        metadata={
+          "reasoning_stage": decision.next_stage,
+          "requires_reset": decision.requires_context_reset,
+          "explanation": decision.explanation,
+          "workspace_content": updated_content,
+        },
       )
 
-    # 4. Create agency message
-    agency_message = Message(
-      content=message.content,
-      metadata={
-        **message.metadata,
-        AGENCY_WORKSPACE_KEY: self.agency_workspace,
-      },
-    )
+      # Handle context reset if needed
+      if decision.requires_context_reset:
+        logger.debug("Cleaning up workspace")
+        await self._cleanup_workspace()
+        logger.debug("Preparing reasoning workspace")
+        await self._prepare_reasoning_workspace(
+          message
+        )
+        yield Response(
+          content="Workspace reset for new problem context",
+          metadata={
+            "action": "workspace_reset",
+            "workspace_content": self.workspace_manager.load_workspace(
+              self.agency_workspace
+            ),
+          },
+        )
 
-    # 5. Dispatch to appropriate specialist based on stage
-    if (
-      current_stage
-      == ReasoningStage.HYPOTHESIS_GENERATION
-    ):
-      async for (
-        response
-      ) in self.hypothesis_agent.process(
-        agency_message
-      ):
-        yield response
-    elif (
-      current_stage == ReasoningStage.INQUIRY_DESIGN
-    ):
-      async for response in self.inquiry_agent.process(
-        agency_message
-      ):
-        yield response
-    elif current_stage == ReasoningStage.VALIDATION:
-      async for (
-        response
-      ) in self.validation_agent.process(
-        agency_message
-      ):
-        yield response
-
-    # 6. Check if we need user input
-    if await self._needs_user_input(
-      message, current_content
-    ):
-      # Update workspace to indicate waiting for user
-      self.workspace_manager.save_workspace(
-        self.agency_workspace,
-        current_content.replace(
-          "# Next Steps",
-          "# Next Steps\nWaiting for user input:",
-        ),
+      # Create agency message with workspace context
+      agency_message = Message(
+        content=message.content,
+        metadata={
+          **message.metadata,
+          AGENCY_WORKSPACE_KEY: self.agency_workspace,
+        },
       )
-      return
 
-    # 7. Update memory with stage-appropriate learnings
-    await self._update_memory_with_learnings(
-      message,
-      current_content,
-      current_stage,
-    )
+      # Dispatch to appropriate specialist based on decided stage
+      match decision.next_stage:
+        case ReasoningStage.HYPOTHESIS_GENERATION:
+          logger.debug(
+            "Dispatching to Hypothesis Agent"
+          )
+          async for (
+            response
+          ) in self.hypothesis_agent.process(
+            agency_message
+          ):
+            # Include workspace content in response metadata
+            if not response.metadata.get("streaming"):
+              response.metadata[
+                "workspace_content"
+              ] = self.workspace_manager.load_workspace(
+                self.agency_workspace
+              )
+            yield response
+
+        case ReasoningStage.INQUIRY_DESIGN:
+          logger.debug("Dispatching to Inquiry Agent")
+          async for (
+            response
+          ) in self.inquiry_agent.process(
+            agency_message
+          ):
+            # Include workspace content in response metadata
+            if not response.metadata.get("streaming"):
+              response.metadata[
+                "workspace_content"
+              ] = self.workspace_manager.load_workspace(
+                self.agency_workspace
+              )
+            yield response
+
+        case ReasoningStage.VALIDATION:
+          logger.debug(
+            "Dispatching to Validation Agent"
+          )
+          async for (
+            response
+          ) in self.validation_agent.process(
+            agency_message
+          ):
+            # Include workspace content in response metadata
+            if not response.metadata.get("streaming"):
+              response.metadata[
+                "workspace_content"
+              ] = self.workspace_manager.load_workspace(
+                self.agency_workspace
+              )
+            yield response
+
+        case ReasoningStage.NEEDS_USER_INPUT:
+          yield Response(
+            content="Additional user input needed",
+            metadata={
+              "action": "request_user_input",
+              "workspace_content": self.workspace_manager.load_workspace(
+                self.agency_workspace
+              ),
+            },
+          )
+
+        case ReasoningStage.PROBLEM_SOLVED:
+          yield Response(
+            content="Problem has been solved",
+            metadata={
+              "action": "problem_solved",
+              "workspace_content": self.workspace_manager.load_workspace(
+                self.agency_workspace
+              ),
+            },
+          )
+
+        case ReasoningStage.PROBLEM_UNSOLVABLE:
+          yield Response(
+            content="Problem has been determined to be unsolvable",
+            metadata={
+              "action": "problem_unsolvable",
+              "workspace_content": self.workspace_manager.load_workspace(
+                self.agency_workspace
+              ),
+            },
+          )
+
+      # Update memory with stage-appropriate learnings
+      logger.debug("Updating memory with learnings")
+      await self._update_memory_with_learnings(
+        message,
+        self.workspace_manager.load_workspace(
+          self.agency_workspace
+        ),
+        decision.next_stage,
+      )

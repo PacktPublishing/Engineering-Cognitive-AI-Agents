@@ -2,9 +2,19 @@
 
 import json
 from contextvars import ContextVar, Token
-from typing import Literal
+from typing import Any, Literal
 
-import chainlit as cl
+from loguru import logger
+
+# Try importing chainlit, but don't fail if not available
+try:
+  import chainlit as cl
+  from chainlit.context import get_context
+
+  _chainlit_get_context = get_context  # Keep reference to avoid unbound issues
+except ImportError:
+  cl = None  # type: ignore
+  _chainlit_get_context = None  # type: ignore
 
 from winston.core.messages import (
   Response,
@@ -51,8 +61,9 @@ class ProcessingStep:
     self.name = name
     self.step_type = step_type
     self.show_input = show_input
-    self.cl_step: cl.Step | None = None
-    self.token: Token | None = None
+    self.cl_step: Any = None  # type: Any to handle both Chainlit Step and None
+    self.token: Token[Any] | None = None
+    logger.debug(f"Starting {step_type} step: {name}")
 
   async def __aenter__(self) -> "ProcessingStep":
     """
@@ -63,21 +74,31 @@ class ProcessingStep:
     ProcessingStep
         The processing step instance
     """
-    self.cl_step = cl.Step(
-      name=self.name,
-      type=self.step_type,
-      show_input=self.show_input,
-    )
+    # Try to get Chainlit context - if this fails, we're not in a Chainlit app
+    try:
+      if (
+        cl is not None
+        and _chainlit_get_context is not None
+      ):
+        _chainlit_get_context()  # This will raise if no context
+        self.cl_step = cl.Step(
+          name=self.name,
+          type=self.step_type,  # type: ignore # Chainlit's type system is different
+          show_input=self.show_input,
+        )
+        await self.cl_step.__aenter__()
+    except Exception:
+      # Not in Chainlit context or other error, just continue without Chainlit
+      pass
 
     self.token = current_step.set(self)
-    await self.cl_step.__aenter__()
     return self
 
   async def __aexit__(
     self,
     exc_type: type[BaseException] | None,
     exc_val: BaseException | None,
-    exc_tb: object | None,
+    exc_tb: Any | None,
   ) -> None:
     """Exit the context manager."""
     if self.cl_step:
@@ -90,6 +111,10 @@ class ProcessingStep:
     if self.token:
       current_step.reset(self.token)
 
+    logger.debug(
+      f"Completed {self.step_type} step: {self.name}"
+    )
+
   async def show_response(
     self, response: Response
   ) -> None:
@@ -101,18 +126,33 @@ class ProcessingStep:
     response : Response
         Response to stream
     """
-    if not self.cl_step:
-      return
-
-    if response.metadata:
-      self.cl_step.input = (
-        "```json\n"
-        + json.dumps(
-          response.metadata, indent=2, default=str
+    if self.cl_step:
+      if response.metadata:
+        self.cl_step.input = (
+          "```json\n"
+          + json.dumps(
+            response.metadata, indent=2, default=str
+          )
+          + "\n```"
+        ).strip()
+      if response.streaming and response.content:
+        await self.cl_step.stream_token(
+          response.content
         )
-        + "\n```"
-      ).strip()
-    if response.streaming and response.content:
-      await self.cl_step.stream_token(response.content)
-    elif response.content:
-      self.cl_step.output = response.content
+      elif response.content:
+        self.cl_step.output = response.content
+    else:
+      # Log the response when Chainlit isn't available
+      if response.metadata:
+        logger.debug(
+          f"Step {self.name} metadata:\n{json.dumps(response.metadata, indent=2, default=str)}"
+        )
+      if response.content:
+        if response.streaming:
+          logger.debug(
+            f"Step {self.name} streaming: {response.content}"
+          )
+        else:
+          logger.debug(
+            f"Step {self.name} output: {response.content}"
+          )

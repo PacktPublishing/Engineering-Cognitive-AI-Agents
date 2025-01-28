@@ -194,3 +194,4 @@ combined_*.md
 *:Zone.Identifier
 examples/**/workspaces/
 public/
+**/artifacts/

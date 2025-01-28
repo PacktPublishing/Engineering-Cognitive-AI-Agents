@@ -176,7 +176,10 @@ class BaseAgent(Agent):
     )
     messages = self._prepare_messages(message)
     tools = self.tool_manager.get_tools_schema()
-    logger.trace(f"Tools schema: {tools}")
+    logger.debug(f"Tools schema: {tools}")
+    logger.debug(
+      f"Required tool: {self.config.required_tool}"
+    )
     tool_choice = None
     if self.config.required_tool:
       # Validate required tool exists in schema
@@ -212,6 +215,17 @@ class BaseAgent(Agent):
         tool_choice=tool_choice,
         timeout=self.config.timeout,
       )
+      logger.debug(
+        f"LLM Response received: {response}"
+      )
+      logger.debug(f"Response type: {type(response)}")
+      if (
+        hasattr(response, "choices")
+        and response.choices
+      ):
+        logger.debug(
+          f"First choice: {response.choices[0]}"
+        )
       if self.config.stream:
         async for (
           chunk
