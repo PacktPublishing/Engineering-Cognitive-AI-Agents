@@ -6,6 +6,9 @@ from typing import AsyncIterator, cast
 from loguru import logger
 
 from winston.core.agent import AgentConfig, BaseAgent
+from winston.core.memory.coordinator import (
+  MemoryCoordinator,
+)
 from winston.core.messages import (
   Message,
   Response,
@@ -24,7 +27,8 @@ class EnhancedReasoningWinston(BaseAgent):
   """Winston with enhanced reasoning capabilities."""
 
   async def process(
-    self, message: Message
+    self,
+    message: Message,
   ) -> AsyncIterator[Response]:
     """Process message using reasoning coordinator.
 
@@ -39,7 +43,7 @@ class EnhancedReasoningWinston(BaseAgent):
         Responses from processing the message
     """
     logger.info(
-      f"Delegating to reasoning coordinator: {message.content}"
+      f"Delegating to reasoning coordinator: {message.content}",
     )
 
     # Create message with shared workspace
@@ -51,36 +55,111 @@ class EnhancedReasoningWinston(BaseAgent):
       },
     )
 
-    # Delegate to reasoning coordinator
+    # Main reasoning flow
     async with ProcessingStep(
       name="Reasoning Coordinator agent",
       step_type="run",
-    ) as step:
-      # Get the response iterator
-      responses = (
-        await self.system.invoke_conversation(
+    ) as reasoning_step:
+      # Track current phase for UI organization
+      current_specialist: str | None = None
+      memory_update_active = False
+      final_workspace_content: str | None = None
+
+      # Get the response iterator and iterate through responses
+      async for response in cast(
+        AsyncIterator[Response],
+        self.system.invoke_conversation(
           agent_id="reasoning_coordinator",
           content=coordinator_message.content,
           context=coordinator_message.metadata,
-        )
-      )
-      # Iterate through responses
-      async for response in responses:
+        ),
+      ):
+        # Skip streaming responses
         if response.metadata.get("streaming", False):
-          yield response
           continue
-        logger.trace(
-          f"Reasoning coordinator response: {response}"
-        )
-        message.metadata["current_workspace"] = (
-          response.content
-        )
-        await step.show_response(response)
 
-    async for (
-      response
-    ) in self.generate_streaming_response(message):
-      yield response
+        # Handle reasoning flow
+        if response.metadata.get("reasoning_stage"):
+          # Show decision in reasoning step
+          logger.trace(
+            f"Reasoning decision: {response.content}",
+          )
+          await reasoning_step.show_response(response)
+
+          # Start specialist phase if needed
+          specialist_type = str(
+            response.metadata.get(
+              "specialist_type", ""
+            )
+          )
+          if (
+            specialist_type
+            and specialist_type != current_specialist
+          ):
+            current_specialist = specialist_type
+            async with ProcessingStep(
+              name=f"{specialist_type} agent",
+              step_type="run",
+            ) as specialist_step:
+              await specialist_step.show_response(
+                response
+              )
+              # Update workspace content from specialist
+              if response.content:
+                final_workspace_content = str(
+                  response.content
+                )
+
+          # Start memory update phase if needed
+          if (
+            response.metadata.get("memory_update")
+            and not memory_update_active
+          ):
+            memory_update_active = True
+            # Just show the memory update response in our step
+            # The memory coordinator will handle its own nested steps
+            await reasoning_step.show_response(
+              response
+            )
+            memory_update_active = False
+
+          continue
+
+        # Handle final response
+        if not response.metadata.get(
+          "streaming", False
+        ):
+          logger.trace(
+            f"Reasoning coordinator final response: {response}",
+          )
+          if response.content:
+            final_workspace_content = str(
+              response.content
+            )
+
+      # Show final workspace content in reasoning step
+      if final_workspace_content:
+        await reasoning_step.show_response(
+          Response(
+            content=final_workspace_content,
+            metadata={
+              "final_workspace": True,
+              "workspace": self.workspace_path,
+            },
+          )
+        )
+
+    # After all steps complete, generate streaming final response
+    if final_workspace_content:
+      async for (
+        response
+      ) in self.generate_streaming_response(
+        Message(
+          content=final_workspace_content,
+          metadata=message.metadata,
+        )
+      ):
+        yield response
 
 
 class EnhancedReasoningWinstonChat(AgentChat):
@@ -111,6 +190,20 @@ class EnhancedReasoningWinstonChat(AgentChat):
     Agent
         The configured Winston agent
     """
+    # Create and register memory coordinator
+    memory_config = AgentConfig.from_yaml(
+      self.paths.system_agents_config
+      / "memory"
+      / "coordinator.yaml"
+    )
+    system.register_agent(
+      MemoryCoordinator(
+        system=cast(AgentSystem, system),
+        config=memory_config,
+        paths=self.paths,
+      )
+    )
+
     # Create and register reasoning coordinator
     coordinator_config = AgentConfig.from_yaml(
       self.paths.system_agents_config

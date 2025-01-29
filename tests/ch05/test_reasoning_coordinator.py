@@ -14,7 +14,7 @@ from winston.core.memory.coordinator import (
 from winston.core.messages import Message
 from winston.core.paths import AgentPaths
 from winston.core.reasoning.coordinator import (
-  EnhancedReasoningCoordinator,
+  ReasoningCoordinator,
 )
 from winston.core.system import AgentSystem
 
@@ -144,7 +144,7 @@ async def test_llm_distillation_reasoning_cycle(
     / "reasoning"
     / "coordinator.yaml"
   )
-  coordinator = EnhancedReasoningCoordinator(
+  coordinator = ReasoningCoordinator(
     system,
     config,
     paths,

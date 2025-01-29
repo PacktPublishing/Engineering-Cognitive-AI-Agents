@@ -125,38 +125,40 @@ class HypothesisAgent(BaseAgent):
     content: str,
     agency_workspace: Path,
   ) -> Response:
-    """Update workspace with new content and create final response.
+    """Update workspace with new content and create response.
 
     Parameters
     ----------
     workspace_content : str
         Current workspace content
     content : str
-        Content to add to workspace
+        New content to add
     agency_workspace : Path
-        Path to agency workspace
+        Path to workspace file
 
     Returns
     -------
     Response
-        Final non-streaming response
+        Response with updated content
     """
-    # Update workspace with content
+    # Update workspace content
     updated_content = self._update_hypotheses_section(
       workspace_content,
       content,
     )
-    logger.debug("Workspace updated with new content")
-
     self.workspace_manager.save_workspace(
-      agency_workspace, updated_content
+      agency_workspace,
+      updated_content,
     )
-    logger.debug("Saved updated workspace")
 
-    # Return final non-streaming response
+    # Return response with proper metadata flags
     return Response(
-      content=content,
-      metadata={"streaming": False},
+      content=updated_content,
+      metadata={
+        "reasoning_stage": True,
+        "specialist_type": "hypothesis",
+        "workspace": str(agency_workspace),
+      },
     )
 
   async def process(
