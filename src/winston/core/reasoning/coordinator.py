@@ -78,6 +78,7 @@ Key Principles:
 """
 
 import json
+import time
 from collections.abc import AsyncIterator
 from enum import StrEnum, auto
 from pathlib import Path
@@ -129,7 +130,7 @@ class ReasoningDecision(BaseModel):
   )
   workspace_updates: str = Field(
     ...,
-    description="Updates to make to workspace sections before proceeding",
+    description="Complete workspace content to replace the current workspace. The LLM has full autonomy to structure the workspace as needed.",
   )
   explanation: str = Field(
     ...,
@@ -202,36 +203,17 @@ class ReasoningCoordinator(BaseAgent):
     Parameters
     ----------
     updates : str
-        String containing section updates in format:
-        "section_name: content\n---\nsection_name2: content2"
+        String containing the complete workspace content to replace the current workspace.
+        The LLM has full autonomy to structure the workspace as needed.
     """
     if not updates.strip():
       return
 
-    current_content = (
-      self.workspace_manager.load_workspace(
-        self.agency_workspace
-      )
-    )
-
-    # Parse updates string into section updates
-    sections = updates.split("\n---\n")
-    for section in sections:
-      if ":" not in section:
-        continue
-      section_name, content = section.split(":", 1)
-      section_name = section_name.strip()
-      content = content.strip()
-
-      # Replace section placeholder with new content
-      current_content = current_content.replace(
-        f"[{section_name}]",
-        content,
-      )
-
+    # Simply save the provided content as the new workspace
+    logger.debug("Applying workspace updates")
     self.workspace_manager.save_workspace(
       self.agency_workspace,
-      current_content,
+      updates,
     )
 
   async def _handle_reasoning_decision(
@@ -265,8 +247,20 @@ class ReasoningCoordinator(BaseAgent):
 
   async def _cleanup_workspace(self) -> None:
     """Clean up workspace for a new problem context."""
-    # TODO: Implement cleanup logic
-    pass
+    logger.debug(
+      f"Cleaning up workspace: {self.agency_workspace}"
+    )
+    if self.agency_workspace.exists():
+      # Archive the current workspace by renaming it with a timestamp
+      archived_path = self.agency_workspace.with_name(
+        f"{self.agency_workspace.stem}_archived_{int(time.time())}.md"
+      )
+      self.agency_workspace.rename(archived_path)
+      logger.debug(
+        f"Archived workspace to: {archived_path}"
+      )
+    # Reset internal state (if any additional state is added later)
+    # Currently, state is workspace-based, so no additional reset is needed
 
   async def _prepare_reasoning_workspace(
     self,
@@ -316,13 +310,11 @@ Problem: {message.content}
 Solution Process: {workspace_content}""",
         metadata={
           "shared_workspace": self.workspace_path,
-          "semantic_metadata": json.dumps(
-            {
-              "reasoning_stage": stage.name,
-              "content_type": "solution",
-              "problem_type": "solved",
-            }
-          ),
+          "semantic_metadata": json.dumps({
+            "reasoning_stage": stage.name,
+            "content_type": "solution",
+            "problem_type": "solved",
+          }),
         },
       )
     else:
@@ -332,13 +324,11 @@ Problem: {message.content}
 Current State: {workspace_content}""",
         metadata={
           "shared_workspace": self.workspace_path,
-          "semantic_metadata": json.dumps(
-            {
-              "reasoning_stage": stage.name,
-              "content_type": "interim_learning",
-              "problem_type": "in_progress",
-            }
-          ),
+          "semantic_metadata": json.dumps({
+            "reasoning_stage": stage.name,
+            "content_type": "interim_learning",
+            "problem_type": "in_progress",
+          }),
         },
       )
 
@@ -399,6 +389,9 @@ Current State: {workspace_content}""",
           ReasoningDecision.model_validate_json(
             response.content
           )
+        )
+        logger.debug(
+          f"Reasoning Decision: Next Stage={decision.next_stage}, Requires Reset={decision.requires_context_reset}, Explanation={decision.explanation}"
         )
 
         # Get updated workspace content after decision

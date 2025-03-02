@@ -54,70 +54,34 @@ class HypothesisAgent(BaseAgent):
     super().__init__(system, config, paths)
     self.workspace_manager = WorkspaceManager()
 
-  def _update_hypotheses_section(
+  def _update_workspace(
     self,
     workspace_content: str,
     hypotheses_content: str,
   ) -> str:
-    """Update the Generated Hypotheses section in the workspace.
+    """Update the workspace with new content.
+
+    The LLM has full autonomy to structure the workspace as needed.
 
     Parameters
     ----------
     workspace_content : str
-        Current workspace content
+        Current workspace content (not used in freeform mode)
     hypotheses_content : str
-        New hypotheses content to insert
+        New content to replace the entire workspace
 
     Returns
     -------
     str
-        Updated workspace content with new hypotheses section
+        Updated workspace content
     """
     logger.debug(
       f"Original workspace content: {workspace_content}"
     )
-    logger.debug(
-      f"New hypotheses content: {hypotheses_content}"
-    )
+    logger.debug(f"New content: {hypotheses_content}")
 
-    # Find the section
-    start = workspace_content.find(
-      "## Generated Hypotheses"
-    )
-    if start == -1:
-      # Add new section if not found
-      logger.debug(
-        "No Generated Hypotheses section found, adding new one"
-      )
-      return (
-        workspace_content
-        + "\n\n## Generated Hypotheses\n\n"
-        + hypotheses_content
-      )
-
-    # Find the next section to determine where this section ends
-    end = workspace_content.find("\n##", start + 2)
-    if end == -1:
-      end = len(workspace_content)
-
-    logger.debug(
-      f"Found Generated Hypotheses section from {start} to {end}"
-    )
-    logger.debug(
-      f"Original section content: {workspace_content[start:end]}"
-    )
-
-    # Replace the entire section with new content
-    updated = (
-      workspace_content[:start]
-      + "## Generated Hypotheses\n\n"
-      + hypotheses_content
-      + "\n\n"
-      + workspace_content[end:]
-    )
-
-    logger.debug(f"Final updated content: {updated}")
-    return updated
+    # Simply return the new content as the complete workspace
+    return hypotheses_content
 
   def _update_workspace_and_respond(
     self,
@@ -130,9 +94,9 @@ class HypothesisAgent(BaseAgent):
     Parameters
     ----------
     workspace_content : str
-        Current workspace content
+        Current workspace content (not used in freeform mode)
     content : str
-        New content to add
+        New content to replace the entire workspace
     agency_workspace : Path
         Path to workspace file
 
@@ -141,19 +105,15 @@ class HypothesisAgent(BaseAgent):
     Response
         Response with updated content
     """
-    # Update workspace content
-    updated_content = self._update_hypotheses_section(
-      workspace_content,
-      content,
-    )
+    # Save the new content directly to the workspace
     self.workspace_manager.save_workspace(
       agency_workspace,
-      updated_content,
+      content,
     )
 
     # Return response with proper metadata flags
     return Response(
-      content=updated_content,
+      content=content,
       metadata={
         "reasoning_stage": True,
         "specialist_type": "hypothesis",
