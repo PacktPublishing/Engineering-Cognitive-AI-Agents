@@ -151,12 +151,65 @@ class EnhancedReasoningWinston(BaseAgent):
 
     # After all steps complete, generate streaming final response
     if final_workspace_content:
+      # Extract the problem statement and hypothesis results from the workspace
+      problem_statement = message.content
+      hypothesis_content = ""
+
+      if (
+        "# Current Problem" in final_workspace_content
+      ):
+        problem_parts = final_workspace_content.split(
+          "# Current Problem"
+        )
+        if len(problem_parts) > 1:
+          problem_lines = (
+            problem_parts[1].strip().split("\n")
+          )
+          if problem_lines:
+            problem_statement = problem_lines[
+              0
+            ].strip()
+
+      if (
+        "# Hypothesis Generation Results"
+        in final_workspace_content
+      ):
+        hypothesis_parts = (
+          final_workspace_content.split(
+            "# Hypothesis Generation Results"
+          )
+        )
+        if len(hypothesis_parts) > 1:
+          hypothesis_content = hypothesis_parts[
+            1
+          ].strip()
+          # Find the next section if any
+          next_section = hypothesis_content.find("#")
+          if next_section > 0:
+            hypothesis_content = hypothesis_content[
+              :next_section
+            ].strip()
+
+      # Create a focused prompt for the final response
+      final_prompt = f"""
+Based on the reasoning process, provide a clear and direct answer to the question: "{problem_statement}"
+
+The analysis has generated the following hypotheses:
+{hypothesis_content}
+
+Synthesize this information into a comprehensive, well-structured response that directly addresses the original question.
+"""
+
       async for (
         response
       ) in self.generate_streaming_response(
         Message(
-          content=final_workspace_content,
-          metadata=message.metadata,
+          content=final_prompt,
+          metadata={
+            **message.metadata,
+            "original_question": problem_statement,
+            "workspace_content": final_workspace_content,
+          },
         )
       ):
         yield response

@@ -83,7 +83,7 @@ class HypothesisAgent(BaseAgent):
     # Simply return the new content as the complete workspace
     return hypotheses_content
 
-  def _update_workspace_and_respond(
+  async def _update_workspace_and_respond(
     self,
     workspace_content: str,
     content: str,
@@ -105,11 +105,70 @@ class HypothesisAgent(BaseAgent):
     Response
         Response with updated content
     """
-    # Save the new content directly to the workspace
-    self.workspace_manager.save_workspace(
-      agency_workspace,
-      content,
-    )
+    # Check if the workspace exists
+    if (
+      agency_workspace.exists()
+      and workspace_content.strip()
+    ):
+      try:
+        # Generate a task description for the edit
+        task = "Update the workspace with hypothesis generation results"
+
+        # Create updated workspace content that includes the hypothesis content
+        updated_content = workspace_content
+
+        # Check if we already have a Hypothesis Generation Results section
+        if (
+          "# Hypothesis Generation Results"
+          not in updated_content
+        ):
+          # Add the hypothesis results section
+          updated_content += f"\n\n# Hypothesis Generation Results\n\n{content}"
+        else:
+          # Replace the existing hypothesis results section
+          sections = updated_content.split(
+            "# Hypothesis Generation Results"
+          )
+          updated_content = (
+            sections[0]
+            + "# Hypothesis Generation Results\n\n"
+            + content
+          )
+          # Add back any sections that might have come after the hypothesis section
+          if len(sections) > 2:
+            for section in sections[2:]:
+              updated_content += section
+
+        # Save the updated content
+        self.workspace_manager.save_workspace(
+          agency_workspace, updated_content
+        )
+
+        # Return response with proper metadata flags
+        return Response(
+          content=updated_content,
+          metadata={
+            "reasoning_stage": True,
+            "specialist_type": "hypothesis",
+            "workspace": str(agency_workspace),
+          },
+        )
+
+      except Exception as e:
+        # Fall back to direct save if update fails
+        logger.warning(
+          f"Workspace update failed, falling back to direct save: {e}"
+        )
+        self.workspace_manager.save_workspace(
+          agency_workspace,
+          content,
+        )
+    else:
+      # Save the new content directly to the workspace
+      self.workspace_manager.save_workspace(
+        agency_workspace,
+        content,
+      )
 
     # Return response with proper metadata flags
     return Response(
@@ -161,7 +220,7 @@ class HypothesisAgent(BaseAgent):
       )
 
       # Handle non-streaming response
-      yield self._update_workspace_and_respond(
+      yield await self._update_workspace_and_respond(
         workspace_content,
         response.content,
         agency_workspace,
@@ -171,7 +230,7 @@ class HypothesisAgent(BaseAgent):
     # If we only got streaming responses, send a final non-streaming response
     if accumulated_content:
       final_content = "".join(accumulated_content)
-      yield self._update_workspace_and_respond(
+      yield await self._update_workspace_and_respond(
         workspace_content,
         final_content,
         agency_workspace,

@@ -85,7 +85,7 @@ class InquiryAgent(BaseAgent):
     # Simply return the new content as the complete workspace
     return investigation_content
 
-  def _update_workspace_and_respond(
+  async def _update_workspace_and_respond(
     self,
     workspace_content: str,
     content: str,
@@ -107,10 +107,59 @@ class InquiryAgent(BaseAgent):
     Response
         Final non-streaming response
     """
-    # Save the new content directly to the workspace
-    self.workspace_manager.save_workspace(
-      agency_workspace, content
-    )
+    # Check if the workspace exists
+    if (
+      agency_workspace.exists()
+      and workspace_content.strip()
+    ):
+      try:
+        # Generate a task description for the edit
+        task = "Update the workspace with inquiry design results"
+
+        # Use the edit_file method which combines delta generation, application, and validation
+        result = await self.workspace_manager.edit_file(
+          agency_workspace,
+          task,
+          self,  # Use self as the agent
+          delta_template=None,  # Use default template
+          validation_template=None,  # Use default template
+        )
+
+        # Log the validation result
+        logger.debug(
+          f"Edit validation result: {result['validation']}"
+        )
+
+        # Include the diff in the response for transparency
+        edited_content = result["edited_content"]
+        diff = result["diff"]
+
+        # Return response with proper metadata flags and diff information
+        return Response(
+          content=edited_content,
+          metadata={
+            "streaming": False,
+            "specialist_type": "inquiry",
+            "workspace": str(agency_workspace),
+            "edit_diff": diff,
+            "validation": result["validation"],
+          },
+        )
+
+      except Exception as e:
+        # Fall back to direct save if edit_file fails
+        logger.warning(
+          f"Edit delta failed, falling back to direct save: {e}"
+        )
+        self.workspace_manager.save_workspace(
+          agency_workspace, content
+        )
+    else:
+      # Save the new content directly to the workspace
+      self.workspace_manager.save_workspace(
+        agency_workspace, content
+      )
+
     logger.debug("Saved updated workspace")
 
     # Return final non-streaming response
@@ -159,7 +208,7 @@ class InquiryAgent(BaseAgent):
       )
 
       # Handle non-streaming response
-      yield self._update_workspace_and_respond(
+      yield await self._update_workspace_and_respond(
         workspace_content,
         response.content,
         agency_workspace,
@@ -169,7 +218,7 @@ class InquiryAgent(BaseAgent):
     # If we only got streaming responses, send a final non-streaming response
     if accumulated_content:
       final_content = "".join(accumulated_content)
-      yield self._update_workspace_and_respond(
+      yield await self._update_workspace_and_respond(
         workspace_content,
         final_content,
         agency_workspace,

@@ -209,12 +209,49 @@ class ReasoningCoordinator(BaseAgent):
     if not updates.strip():
       return
 
-    # Simply save the provided content as the new workspace
-    logger.debug("Applying workspace updates")
-    self.workspace_manager.save_workspace(
-      self.agency_workspace,
-      updates,
-    )
+    # Check if the workspace exists
+    if self.agency_workspace.exists():
+      # Use the edit_file method for more robust updates
+      logger.debug(
+        "Applying workspace updates using edit delta"
+      )
+      try:
+        # Generate a task description for the edit
+        task = "Update the reasoning workspace with the latest content"
+
+        # Use the edit_file method which combines delta generation, application, and validation
+        result = await self.workspace_manager.edit_file(
+          self.agency_workspace,
+          task,
+          self,  # Use self as the agent
+          delta_template=None,  # Use default template
+          validation_template=None,  # Use default template
+        )
+
+        # Log the validation result
+        logger.debug(
+          f"Edit validation result: {result['validation']}"
+        )
+
+        # Log the diff for debugging
+        logger.debug(f"Edit diff:\n{result['diff']}")
+
+      except Exception as e:
+        # Fall back to direct save if edit_file fails
+        logger.warning(
+          f"Edit delta failed, falling back to direct save: {e}"
+        )
+        self.workspace_manager.save_workspace(
+          self.agency_workspace,
+          updates,
+        )
+    else:
+      # Simply save the provided content as the new workspace
+      logger.debug("Creating new workspace")
+      self.workspace_manager.save_workspace(
+        self.agency_workspace,
+        updates,
+      )
 
   async def _handle_reasoning_decision(
     self,
@@ -240,9 +277,22 @@ class ReasoningCoordinator(BaseAgent):
       logger.debug(
         f"Applying workspace updates: {decision.workspace_updates}"
       )
-      await self._apply_workspace_updates(
-        decision.workspace_updates
-      )
+
+      # For new problems that require context reset, directly overwrite the workspace
+      # instead of using edit delta to ensure a clean slate
+      if decision.requires_context_reset:
+        logger.info(
+          "Directly overwriting workspace for new problem context"
+        )
+        self.workspace_manager.save_workspace(
+          self.agency_workspace,
+          decision.workspace_updates,
+        )
+      else:
+        # For ongoing problems, use edit delta for incremental updates
+        await self._apply_workspace_updates(
+          decision.workspace_updates
+        )
     return decision
 
   async def _cleanup_workspace(self) -> None:
@@ -303,10 +353,43 @@ class ReasoningCoordinator(BaseAgent):
     stage : ReasoningStage
         Current reasoning stage
     """
+    # Extract the problem statement from the workspace content
+    problem_statement = message.content
+    if "# Current Problem" in workspace_content:
+      problem_parts = workspace_content.split(
+        "# Current Problem"
+      )
+      if len(problem_parts) > 1:
+        problem_lines = (
+          problem_parts[1].strip().split("\n")
+        )
+        if problem_lines:
+          problem_statement = problem_lines[0].strip()
+
+    # Extract hypothesis results if available
+    hypothesis_content = ""
+    if (
+      "# Hypothesis Generation Results"
+      in workspace_content
+    ):
+      hypothesis_parts = workspace_content.split(
+        "# Hypothesis Generation Results"
+      )
+      if len(hypothesis_parts) > 1:
+        hypothesis_content = hypothesis_parts[
+          1
+        ].strip()
+        # Find the next section if any
+        next_section = hypothesis_content.find("#")
+        if next_section > 0:
+          hypothesis_content = hypothesis_content[
+            :next_section
+          ].strip()
+
     if stage == ReasoningStage.PROBLEM_SOLVED:
       memory_message = Message(
         content=f"""Please analyze and store key learnings from this solved problem:
-Problem: {message.content}
+Problem: {problem_statement}
 Solution Process: {workspace_content}""",
         metadata={
           "shared_workspace": self.workspace_path,
@@ -314,20 +397,35 @@ Solution Process: {workspace_content}""",
             "reasoning_stage": stage.name,
             "content_type": "solution",
             "problem_type": "solved",
+            "problem_domain": problem_statement,  # Add problem domain for better retrieval
           }),
         },
       )
     else:
+      # Include extracted hypothesis content if available
+      content_to_store = workspace_content
+      if (
+        hypothesis_content
+        and stage
+        == ReasoningStage.HYPOTHESIS_GENERATION
+      ):
+        content_to_store = f"""# Current Problem
+{problem_statement}
+
+# Hypothesis Generation Results
+{hypothesis_content}"""
+
       memory_message = Message(
         content=f"""Please store interim learnings from reasoning stage {stage.name}:
-Problem: {message.content}
-Current State: {workspace_content}""",
+Problem: {problem_statement}
+Current State: {content_to_store}""",
         metadata={
           "shared_workspace": self.workspace_path,
           "semantic_metadata": json.dumps({
             "reasoning_stage": stage.name,
             "content_type": "interim_learning",
             "problem_type": "in_progress",
+            "problem_domain": problem_statement,  # Add problem domain for better retrieval
           }),
         },
       )
