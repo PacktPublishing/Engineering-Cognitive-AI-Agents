@@ -84,7 +84,7 @@ cycler==0.12.1
     # via matplotlib
 dataclasses-json==0.6.7
     # via chainlit
-debugpy==1.8.12
+debugpy==1.8.13
     # via ipykernel
 decorator==5.2.1
     # via ipython
@@ -267,7 +267,7 @@ oauthlib==3.2.2
     # via requests-oauthlib
 onnxruntime==1.20.1
     # via chromadb
-openai==1.65.2
+openai==1.65.3
     # via ecaa
     # via litellm
 opentelemetry-api==1.29.0

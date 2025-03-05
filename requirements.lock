@@ -232,7 +232,7 @@ oauthlib==3.2.2
     # via requests-oauthlib
 onnxruntime==1.20.1
     # via chromadb
-openai==1.65.2
+openai==1.65.3
     # via ecaa
     # via litellm
 opentelemetry-api==1.29.0

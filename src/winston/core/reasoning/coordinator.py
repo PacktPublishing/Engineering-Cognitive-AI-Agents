@@ -291,12 +291,19 @@ class ReasoningCoordinator(BaseAgent):
     self,
     decision: ReasoningDecision,
   ) -> ReasoningDecision:
-    """Handle and apply a reasoning decision.
+    """Handle and apply a reasoning decision, including workspace management.
+
+    This method centralizes all workspace management logic, handling:
+    1. Context reset (archiving old workspace and creating new one)
+    2. Workspace updates for ongoing problems
+    3. All workspace state transitions
 
     Parameters
     ----------
     decision : ReasoningDecision
         The reasoning decision to process
+    message : Optional[Message], optional
+        The original user message, needed for workspace initialization, by default None
 
     Returns
     -------
@@ -307,26 +314,6 @@ class ReasoningCoordinator(BaseAgent):
       f"Handling reasoning decision: {decision.model_dump_json(indent=2)}"
     )
 
-    if decision.workspace_updates:
-      logger.debug(
-        f"Applying workspace updates: {decision.workspace_updates}"
-      )
-
-      # For new problems that require context reset, directly overwrite the workspace
-      # instead of using edit delta to ensure a clean slate
-      if decision.requires_context_reset:
-        logger.info(
-          "Directly overwriting workspace for new problem context"
-        )
-        self.workspace_manager.save_workspace(
-          self.agency_workspace,
-          decision.workspace_updates,
-        )
-      else:
-        # For ongoing problems, use edit delta for incremental updates
-        await self._apply_workspace_updates(
-          decision.workspace_updates
-        )
     return decision
 
   def _update_reasoning_stage(
@@ -385,30 +372,40 @@ class ReasoningCoordinator(BaseAgent):
       logger.debug(
         f"Archived workspace to: {archived_path}"
       )
-    # Reset internal state (if any additional state is added later)
-    # Currently, state is workspace-based, so no additional reset is needed
 
   async def _prepare_reasoning_workspace(
     self,
     message: Message,
   ) -> None:
-    """Prepare reasoning workspace for current stage.
+    """Prepare reasoning workspace for initial stage.
 
     - Initializes fresh workspace using template
     - Sets up initial problem context
+
+    Parameters
+    ----------
+    message : Message
+        The original user message
     """
-    template = (
-      self.workspace_manager.get_workspace_template(
-        self.agency_workspace
+    if not self.config.workspace_template:
+      raise ValueError(
+        "No workspace template provided for reasoning coordinator"
       )
+    template = self.config.workspace_template
+    print(f"\n\n\n\nTemplate: {template}\n\n\n\n")
+    print(
+      f"\n\n\n\nMessage.content: {message.content}\n\n\n\n"
     )
+    content = template.format(
+      problem_statement=message.content,
+      stage=ReasoningStage.HYPOTHESIS_GENERATION.name,
+    )
+    print(f"\n\n\n\nContent: {content}\n\n\n\n")
     self.workspace_manager.initialize_workspace(
       self.agency_workspace,
       owner_id=self.id,
-      content=template.format(
-        problem_statement=message.content,
-        stage=ReasoningStage.HYPOTHESIS_GENERATION.name,
-      ),
+      template=template,
+      content=content,
     )
 
   async def _update_memory_with_learnings(
@@ -552,8 +549,15 @@ Current State: {content_to_store}""",
     Response
         Updated response with workspace content
     """
+    logger.debug(
+      f"Processing specialist response from: {specialist_name}"
+    )
+
     # Determine the section header based on the specialist name
     section_header = f"# {specialist_name} Results"
+    logger.debug(
+      f"Using section header: {section_header}"
+    )
 
     # Check if the workspace exists and has content
     if (
@@ -563,9 +567,15 @@ Current State: {content_to_store}""",
       try:
         # Create updated workspace content that includes the specialist content
         updated_content = workspace_content
+        logger.debug(
+          "Starting workspace content update"
+        )
 
         # Update the reasoning stage based on the specialist name
         if specialist_name == "Hypothesis Generation":
+          logger.debug(
+            "Updating reasoning stage to HYPOTHESIS_GENERATION"
+          )
           updated_content = (
             self._update_reasoning_stage(
               updated_content,
@@ -573,6 +583,9 @@ Current State: {content_to_store}""",
             )
           )
         elif specialist_name == "Inquiry Design":
+          logger.debug(
+            "Updating reasoning stage to INQUIRY_DESIGN"
+          )
           updated_content = (
             self._update_reasoning_stage(
               updated_content,
@@ -580,6 +593,9 @@ Current State: {content_to_store}""",
             )
           )
         elif specialist_name == "Validation":
+          logger.debug(
+            "Updating reasoning stage to VALIDATION"
+          )
           updated_content = (
             self._update_reasoning_stage(
               updated_content,
@@ -590,6 +606,9 @@ Current State: {content_to_store}""",
         # Remove any existing specialist results sections to avoid duplication
         # First check for the current specialist's section
         if section_header in updated_content:
+          logger.debug(
+            f"Removing existing {section_header} section to avoid duplication"
+          )
           # Remove the existing section and its content
           parts = updated_content.split(section_header)
           # Keep the part before the section
@@ -601,12 +620,18 @@ Current State: {content_to_store}""",
             next_section_pos = remaining.find("\n# ")
             if next_section_pos > 0:
               # Add everything from the next section onwards
+              logger.debug(
+                "Preserving content after the next major section"
+              )
               updated_content += remaining[
                 next_section_pos:
               ]
 
         # Also remove any Learning Capture section that might contain duplicated content
         if "## Learning Capture" in updated_content:
+          logger.debug(
+            "Removing Learning Capture section to avoid duplication"
+          )
           parts = updated_content.split(
             "## Learning Capture"
           )
@@ -619,6 +644,9 @@ Current State: {content_to_store}""",
             next_section_pos = remaining.find("\n# ")
             if next_section_pos > 0:
               # Add everything from the next section onwards
+              logger.debug(
+                "Preserving content after the next major section"
+              )
               updated_content += remaining[
                 next_section_pos:
               ]
@@ -632,18 +660,30 @@ Current State: {content_to_store}""",
             updated_content += "\n\n"
 
         # Add the section header and content
+        logger.debug(
+          f"Adding new {section_header} section with content"
+        )
         updated_content += (
           f"{section_header}\n\n{content}"
         )
 
         # Save the updated content
+        logger.debug(
+          f"Saving updated workspace content to {self.agency_workspace}"
+        )
         self.workspace_manager.save_workspace(
           self.agency_workspace,
           updated_content,
         )
+        logger.debug(
+          "Workspace content saved successfully"
+        )
 
         # Return response with a summary instead of the full workspace content
         # to avoid payload size issues
+        logger.debug(
+          "Returning response with specialist content"
+        )
         return Response(
           content=content,  # Just return the specialist content
           metadata={
@@ -657,18 +697,27 @@ Current State: {content_to_store}""",
         logger.warning(
           f"Workspace update failed, falling back to direct save: {e}"
         )
+        logger.debug(
+          "Attempting direct save as fallback"
+        )
         self.workspace_manager.save_workspace(
           self.agency_workspace,
           content,
         )
     else:
       # Save the new content directly to the workspace
+      logger.debug(
+        f"Workspace doesn't exist or is empty, saving content directly to {self.agency_workspace}"
+      )
       self.workspace_manager.save_workspace(
         self.agency_workspace,
         content,
       )
 
     # Return response with the content
+    logger.debug(
+      "Returning response with full content"
+    )
     return Response(
       content=content,
       metadata={
@@ -787,6 +836,8 @@ Focus on similar validation patterns, interpretation frameworks, and previous co
           "content_type": "query",
           "problem_domain": problem_statement,
         }),
+        # Set query_mode flag to prevent workspace modifications
+        "query_mode": True,
       },
     )
 
@@ -800,7 +851,14 @@ Focus on similar validation patterns, interpretation frameworks, and previous co
       ),
     ):
       if not response.metadata.get("streaming", True):
-        memory_context = response.content
+        # Parse the JSON response from the memory coordinator
+        try:
+          memory_data = json.loads(response.content)
+          if memory_data.get("content"):
+            memory_context = memory_data["content"]
+        except json.JSONDecodeError:
+          # Fallback to using the raw response if it's not valid JSON
+          memory_context = response.content
         break
 
     return memory_context
@@ -1071,6 +1129,26 @@ Focus on similar validation patterns, interpretation frameworks, and previous co
           f"Reasoning Decision: Next Stage={decision.next_stage}, Requires Reset={decision.requires_context_reset}, Explanation={decision.explanation}"
         )
 
+        # Handle context reset if needed
+        if decision.requires_context_reset:
+          logger.debug("Cleaning up workspace")
+          await self._cleanup_workspace()
+
+          logger.debug("Preparing reasoning workspace")
+          await self._prepare_reasoning_workspace(
+            message
+          )
+
+        # For ongoing problems, apply updates if provided
+        if decision.workspace_updates:
+          logger.debug(
+            f"Applying workspace updates for ongoing problem: {decision.workspace_updates[:100]}..."
+          )
+          # For ongoing problems, use edit delta for incremental updates
+          await self._apply_workspace_updates(
+            decision.workspace_updates
+          )
+
         # Get updated workspace content after decision
         updated_content = (
           self.workspace_manager.load_workspace(
@@ -1096,24 +1174,6 @@ Focus on similar validation patterns, interpretation frameworks, and previous co
             },
           )
         )
-
-        # Handle context reset if needed
-        if decision.requires_context_reset:
-          logger.debug("Cleaning up workspace")
-          await self._cleanup_workspace()
-          logger.debug("Preparing reasoning workspace")
-          await self._prepare_reasoning_workspace(
-            message
-          )
-          yield Response(
-            content="Workspace reset for new problem context",
-            metadata={
-              "action": "workspace_reset",
-              "workspace_content": self.workspace_manager.load_workspace(
-                self.agency_workspace
-              ),
-            },
-          )
 
         # Dispatch to appropriate specialist based on decided stage
         match decision.next_stage:
@@ -1185,6 +1245,7 @@ Focus on similar validation patterns, interpretation frameworks, and previous co
             )
 
           case ReasoningStage.PROBLEM_UNSOLVABLE:
+            yield Response(
               content="Problem has been determined to be unsolvable",
               metadata={
                 "action": "problem_unsolvable",

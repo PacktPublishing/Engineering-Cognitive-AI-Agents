@@ -235,12 +235,15 @@ class WorkspaceManager:
     logger.trace(
       "Initializing new WorkspaceManager instance"
     )
-    self._workspaces: dict[Path, str] = {}
+    # Remove workspace content cache
     self._templates: dict[str, str] = {}
     self._workspace_owners: dict[Path, str] = {}
     self._edit_history: dict[
       Path, List[List[EditOperation]]
     ] = {}
+    logger.debug(
+      "WorkspaceManager initialized with empty collections"
+    )
 
   def initialize_workspace(
     self,
@@ -255,10 +258,23 @@ class WorkspaceManager:
     The actual file will be created lazily when the workspace is first accessed
     for reading or writing.
     """
+    logger.debug(
+      f"Initializing workspace metadata: path={workspace_path}, "
+      f"content_provided={content is not None}, "
+      f"template_provided={template is not None}, "
+      f"owner_id={owner_id}"
+    )
+
     if owner_id:
       self._workspace_owners[workspace_path] = owner_id
+      logger.debug(
+        f"Registered owner_id={owner_id} for workspace={workspace_path}"
+      )
     if template and owner_id:
       self._templates[owner_id] = template
+      logger.debug(
+        f"Registered template for owner_id={owner_id}"
+      )
 
     # Only create the file if content is explicitly provided
     if (
@@ -286,20 +302,41 @@ class WorkspaceManager:
     self, workspace_path: Path
   ) -> str:
     """Get template for a workspace."""
+    logger.debug(
+      f"Getting template for workspace={workspace_path}"
+    )
     owner_id = self._workspace_owners.get(
       workspace_path
     )
+    logger.debug(
+      f"Found owner_id={owner_id} for workspace"
+    )
+
     if owner_id:
-      return self._templates.get(
+      template = self._templates.get(
         owner_id, DEFAULT_INITIAL_TEMPLATE
       )
+      logger.debug(
+        f"Using {"custom" if owner_id in self._templates else "default"} template for owner_id={owner_id}"
+      )
+      return template
+
+    logger.debug(
+      "No owner found, using default template"
+    )
     return DEFAULT_INITIAL_TEMPLATE
 
   def get_workspace_owner(
     self, workspace_path: Path
   ) -> str | None:
     """Get the owner ID for a workspace."""
-    return self._workspace_owners.get(workspace_path)
+    owner_id = self._workspace_owners.get(
+      workspace_path
+    )
+    logger.debug(
+      f"Retrieved owner_id={owner_id} for workspace={workspace_path}"
+    )
+    return owner_id
 
   def load_workspace(
     self,
@@ -309,40 +346,56 @@ class WorkspaceManager:
     logger.debug(
       f"Loading workspace from {workspace_path}"
     )
-    if workspace_path not in self._workspaces:
-      try:
-        # Check if the file exists
-        if not workspace_path.exists():
-          # Register the workspace metadata without creating the file
-          self.initialize_workspace(workspace_path)
 
-          # Now create the file on-demand since we're actually accessing it
-          logger.info(
-            f"Creating workspace on-demand at {workspace_path}"
-          )
-          workspace_path.parent.mkdir(
-            parents=True, exist_ok=True
-          )
-          workspace_path.write_text(
-            self.get_workspace_template(workspace_path)
-          )
-          logger.debug(
-            f"Workspace created on-demand at {workspace_path}"
-          )
+    try:
+      # Check if the file exists
+      file_exists = workspace_path.exists()
+      logger.debug(
+        f"Workspace file exists: {file_exists}"
+      )
 
-        # Read and cache the workspace content
-        self._workspaces[workspace_path] = (
-          workspace_path.read_text()
+      if not file_exists:
+        # Register the workspace metadata without creating the file
+        logger.debug(
+          "Registering workspace metadata before creation"
         )
-        logger.trace(
-          f"Workspace loaded and cached: {workspace_path}"
+        self.initialize_workspace(workspace_path)
+
+        # Now create the file on-demand since we're actually accessing it
+        logger.info(
+          f"Creating workspace on-demand at {workspace_path}"
         )
-      except Exception as e:
-        logger.exception(
-          f"Failed to load workspace {workspace_path}: {e}"
+        workspace_path.parent.mkdir(
+          parents=True, exist_ok=True
         )
-        raise
-    return self._workspaces[workspace_path]
+        template = self.get_workspace_template(
+          workspace_path
+        )
+        logger.debug(
+          f"Using template of length {len(template)} characters"
+        )
+        workspace_path.write_text(template)
+        logger.debug(
+          f"Workspace created on-demand at {workspace_path}"
+        )
+
+      # Always read directly from the file system
+      content = workspace_path.read_text()
+      logger.debug(
+        f"Read {len(content)} characters from workspace file"
+      )
+      logger.debug(
+        f"Content preview: {content[:200]}..."
+      )
+      logger.trace(
+        f"Workspace loaded: {workspace_path}"
+      )
+      return content
+    except Exception as e:
+      logger.exception(
+        f"Failed to load workspace {workspace_path}: {e}"
+      )
+      raise
 
   def save_workspace(
     self,
@@ -362,15 +415,44 @@ class WorkspaceManager:
       f"Saving workspace to: {workspace_path}"
     )
     logger.debug(
-      f"Content to save: {content[:200]}..."
+      f"Content length: {len(content)} characters"
     )
-    workspace_path.parent.mkdir(
-      parents=True, exist_ok=True
+    logger.debug(
+      f"Content preview: {content[:200]}..."
     )
-    workspace_path.write_text(content)
-    self._workspaces[workspace_path] = (
-      content  # Update the cache
-    )
+
+    # Check if directory exists
+    if not workspace_path.parent.exists():
+      logger.debug(
+        f"Creating parent directory: {workspace_path.parent}"
+      )
+      workspace_path.parent.mkdir(
+        parents=True, exist_ok=True
+      )
+
+    # Check if content has changed by reading current file
+    try:
+      if workspace_path.exists():
+        current_content = workspace_path.read_text()
+        content_changed = current_content != content
+      else:
+        content_changed = True
+
+      logger.debug(
+        f"Content has changed: {content_changed}"
+      )
+
+      # Write to file system
+      workspace_path.write_text(content)
+      logger.debug(
+        f"Successfully wrote {len(content)} characters to file"
+      )
+    except Exception as e:
+      logger.exception(
+        f"Error saving workspace to {workspace_path}: {e}"
+      )
+      raise
+
     logger.debug("Workspace saved successfully")
 
   async def update_workspace(
@@ -386,24 +468,55 @@ class WorkspaceManager:
       f"Updating workspace: {workspace_path}"
     )
     logger.debug(
-      f"Update category: {update_category}, Message: {message}"
+      f"Update category: {update_category}, Message type: {type(message).__name__}"
+    )
+    logger.debug(
+      f"Message content length: {len(message.content)} characters"
+    )
+    logger.debug(
+      f"Message metadata: {message.metadata}"
     )
 
     try:
+      logger.debug(
+        "Loading existing workspace content"
+      )
       workspace = self.load_workspace(workspace_path)
+      logger.debug(
+        f"Loaded workspace of length {len(workspace)} characters"
+      )
 
       if update_category is None:
         update_category = "Interaction"
+        logger.debug(
+          "No update category provided, defaulting to 'Interaction'"
+        )
+      else:
+        logger.debug(
+          f"Using provided update category: {update_category}"
+        )
 
       content_format = (
         message.content
         if update_category != "Interaction"
         else f"User: {message.content}"
       )
+      logger.debug(
+        f"Formatted content length: {len(content_format)} characters"
+      )
 
-      template = Template(
+      # Prepare the template
+      template_source = (
         update_template or DEFAULT_UPDATE_TEMPLATE
       )
+      template_type = (
+        "custom" if update_template else "default"
+      )
+      logger.debug(
+        f"Using {template_type} update template"
+      )
+
+      template = Template(template_source)
       update_prompt = template.render(
         msg_type=update_category.replace("_", " "),
         content_format=content_format,
@@ -413,7 +526,13 @@ class WorkspaceManager:
       logger.trace(
         f"Generated update prompt: {update_prompt}"
       )
+      logger.debug(
+        f"Update prompt length: {len(update_prompt)} characters"
+      )
 
+      logger.debug(
+        "Sending update prompt to agent for processing"
+      )
       response = await agent.generate_response(
         Message(
           content=update_prompt,
@@ -421,9 +540,10 @@ class WorkspaceManager:
         )
       )
       logger.debug(
-        f"Update response received: {response.content}"
+        f"Update response received, length: {len(response.content)} characters"
       )
 
+      logger.debug("Saving updated workspace content")
       self.save_workspace(
         workspace_path, response.content
       )
@@ -467,15 +587,33 @@ class WorkspaceManager:
       f"Generating edit delta for file: {file_path}"
     )
     logger.debug(f"Task: {task}")
+    logger.debug(f"Agent type: {type(agent).__name__}")
+    logger.debug(
+      f"Using custom template: {delta_template is not None}"
+    )
 
     try:
       # Read the file content
+      logger.debug(
+        f"Reading content from file: {file_path}"
+      )
       file_content = file_path.read_text()
+      logger.debug(
+        f"Read {len(file_content)} characters from file"
+      )
 
       # Prepare the prompt
-      template = Template(
+      template_source = (
         delta_template or DEFAULT_EDIT_DELTA_TEMPLATE
       )
+      template_type = (
+        "custom" if delta_template else "default"
+      )
+      logger.debug(
+        f"Using {template_type} delta template"
+      )
+
+      template = Template(template_source)
       delta_prompt = template.render(
         file_content=file_content,
         task=task,
@@ -484,36 +622,69 @@ class WorkspaceManager:
       logger.trace(
         f"Generated delta prompt: {delta_prompt}"
       )
+      logger.debug(
+        f"Delta prompt length: {len(delta_prompt)} characters"
+      )
 
       # Get the response from the agent
+      logger.debug(
+        "Sending delta prompt to agent for processing"
+      )
       response = await agent.generate_response(
         Message(
           content=delta_prompt,
         )
       )
+      logger.debug(
+        f"Received response of length {len(response.content)} characters"
+      )
 
       # Parse the response as JSON
       try:
         # Extract JSON from the response if it's wrapped in markdown code blocks
+        logger.debug(
+          "Extracting JSON from agent response"
+        )
         content = response.content
         if "```json" in content:
+          logger.debug(
+            "Found JSON code block in response"
+          )
           content = (
             content.split("```json")[1]
             .split("```")[0]
             .strip()
           )
         elif "```" in content:
+          logger.debug(
+            "Found generic code block in response"
+          )
           content = (
             content.split("```")[1]
             .split("```")[0]
             .strip()
           )
+        logger.debug(
+          f"Extracted content length: {len(content)} characters"
+        )
 
+        logger.debug("Parsing JSON content")
         edit_operations_data = json.loads(content)
+        logger.debug(
+          f"Parsed {len(edit_operations_data)} edit operations from JSON"
+        )
+
         edit_operations = [
           EditOperation.from_dict(op)
           for op in edit_operations_data
         ]
+
+        # Log details about each operation
+        for i, op in enumerate(edit_operations):
+          logger.debug(
+            f"Operation {i + 1}: action={op.action}, location={op.location}, "
+            f"content_length={len(op.content) if op.content else 0}"
+          )
 
         logger.debug(
           f"Generated {len(edit_operations)} edit operations"
@@ -564,18 +735,33 @@ class WorkspaceManager:
     logger.debug(
       f"Number of edit operations: {len(edit_operations)}"
     )
+    logger.debug(
+      f"Output path: {output_path if output_path else "None (overwriting original)"}"
+    )
 
     try:
       # Read the file content
+      logger.debug(
+        f"Reading content from file: {file_path}"
+      )
       file_content = file_path.read_text()
       lines = file_content.splitlines()
+      logger.debug(f"File has {len(lines)} lines")
 
       # Track original line numbers for each line in the current file
       # This helps handle line number changes due to insertions/deletions
       original_line_numbers = list(range(len(lines)))
+      logger.debug(
+        "Initialized original line number tracking"
+      )
 
       # Apply edit operations
-      for op in edit_operations:
+      for i, op in enumerate(edit_operations):
+        logger.debug(
+          f"Applying operation {i + 1}/{len(edit_operations)}: "
+          f"action={op.action}, location={op.location}"
+        )
+
         if op.action == "insert":
           # For insert, we need the index in the current file that corresponds
           # to the original line number specified in the operation
@@ -591,15 +777,26 @@ class WorkspaceManager:
             current_index = (
               original_line_numbers.index(insert_after)
             )
+            logger.debug(
+              f"Found insert location at current index {current_index} "
+              f"(original line {insert_after})"
+            )
           except ValueError:
             # If the line number is not found, insert at the end
             current_index = len(lines) - 1
+            logger.warning(
+              f"Original line {insert_after} not found, inserting at end "
+              f"(current index {current_index})"
+            )
 
           # Insert the content
           new_content_lines = (
             op.content.splitlines()
             if op.content
             else []
+          )
+          logger.debug(
+            f"Inserting {len(new_content_lines)} lines after index {current_index}"
           )
           lines[
             current_index + 1 : current_index + 1
@@ -610,6 +807,9 @@ class WorkspaceManager:
           original_line_numbers[
             current_index + 1 : current_index + 1
           ] = [-1] * len(new_content_lines)
+          logger.debug(
+            "Updated line number tracking after insertion"
+          )
 
         elif op.action == "delete":
           # For delete, we need to find all indices in the current file
@@ -619,6 +819,9 @@ class WorkspaceManager:
             and len(op.location) == 2
           ):
             start, end = op.location
+            logger.debug(
+              f"Delete range: original lines {start} to {end}"
+            )
           else:
             logger.warning(
               f"Delete location is not a valid range: {op.location}. Skipping."
@@ -634,13 +837,23 @@ class WorkspaceManager:
             if orig_line_num >= start
             and orig_line_num <= end
           ]
+          logger.debug(
+            f"Found {len(indices_to_delete)} lines to delete at current indices: {indices_to_delete}"
+          )
 
           # Delete lines in reverse order to avoid index shifting
           for i in sorted(
             indices_to_delete, reverse=True
           ):
+            logger.debug(
+              f"Deleting line at current index {i}"
+            )
             del lines[i]
             del original_line_numbers[i]
+
+          logger.debug(
+            "Updated line number tracking after deletion"
+          )
 
         elif op.action == "replace":
           # For replace, first delete the lines, then insert the new content
@@ -649,6 +862,9 @@ class WorkspaceManager:
             and len(op.location) == 2
           ):
             start, end = op.location
+            logger.debug(
+              f"Replace range: original lines {start} to {end}"
+            )
           else:
             logger.warning(
               f"Replace location is not a valid range: {op.location}. Skipping."
@@ -671,13 +887,23 @@ class WorkspaceManager:
             )
             continue
 
+          logger.debug(
+            f"Found {len(indices_to_replace)} lines to replace at current indices: {indices_to_replace}"
+          )
+
           # Get the index where replacement should start
           replace_start_index = min(indices_to_replace)
+          logger.debug(
+            f"Replacement will start at index {replace_start_index}"
+          )
 
           # Delete lines in reverse order
           for i in sorted(
             indices_to_replace, reverse=True
           ):
+            logger.debug(
+              f"Deleting line at current index {i} for replacement"
+            )
             del lines[i]
             del original_line_numbers[i]
 
@@ -687,6 +913,9 @@ class WorkspaceManager:
             if op.content
             else []
           )
+          logger.debug(
+            f"Inserting {len(new_content_lines)} new lines at index {replace_start_index}"
+          )
           lines[
             replace_start_index:replace_start_index
           ] = new_content_lines
@@ -694,19 +923,36 @@ class WorkspaceManager:
             replace_start_index:replace_start_index
           ] = [-1] * len(new_content_lines)
 
+          logger.debug(
+            "Updated line number tracking after replacement"
+          )
+
       # Join lines back into a string
       edited_content = "\n".join(lines)
+      logger.debug(
+        f"Final edited content has {len(lines)} lines and {len(edited_content)} characters"
+      )
 
       # Save the edited content
       if output_path:
-        output_path.parent.mkdir(
-          parents=True, exist_ok=True
+        logger.debug(
+          f"Saving edited content to output path: {output_path}"
         )
+        if not output_path.parent.exists():
+          logger.debug(
+            f"Creating parent directory: {output_path.parent}"
+          )
+          output_path.parent.mkdir(
+            parents=True, exist_ok=True
+          )
         output_path.write_text(edited_content)
         logger.debug(
           f"Edited file saved to: {output_path}"
         )
       else:
+        logger.debug(
+          f"Overwriting original file: {file_path}"
+        )
         file_path.write_text(edited_content)
         logger.debug(
           f"Original file updated: {file_path}"
@@ -714,9 +960,15 @@ class WorkspaceManager:
 
       # Store edit operations in history
       if file_path not in self._edit_history:
+        logger.debug(
+          f"Creating new edit history entry for {file_path}"
+        )
         self._edit_history[file_path] = []
       self._edit_history[file_path].append(
         edit_operations
+      )
+      logger.debug(
+        f"Edit history updated, now has {len(self._edit_history[file_path])} entries"
       )
 
       return edited_content
@@ -763,20 +1015,48 @@ class WorkspaceManager:
         - comments: str - Additional comments
     """
     logger.info("Validating edit")
+    logger.debug(
+      f"Original content length: {len(original_content)} characters"
+    )
+    logger.debug(
+      f"Edited content length: {len(edited_content)} characters"
+    )
+    logger.debug(f"Task: {task}")
+    logger.debug(
+      f"Number of edit operations: {len(edit_operations)}"
+    )
+    logger.debug(f"Agent type: {type(agent).__name__}")
+    logger.debug(
+      f"Using custom validation template: {validation_template is not None}"
+    )
 
     try:
       # Prepare the prompt
-      template = Template(
+      template_source = (
         validation_template
         or DEFAULT_EDIT_VALIDATION_TEMPLATE
       )
+      template_type = (
+        "custom" if validation_template else "default"
+      )
+      logger.debug(
+        f"Using {template_type} validation template"
+      )
+
+      template = Template(template_source)
 
       # Convert edit operations to JSON
+      logger.debug(
+        "Converting edit operations to JSON"
+      )
       edit_operations_json = json.dumps(
         [op.to_dict() for op in edit_operations]
         if edit_operations
         else [],
         indent=2,
+      )
+      logger.debug(
+        f"JSON representation length: {len(edit_operations_json)} characters"
       )
 
       validation_prompt = template.render(
@@ -789,35 +1069,75 @@ class WorkspaceManager:
       logger.trace(
         f"Generated validation prompt: {validation_prompt}"
       )
+      logger.debug(
+        f"Validation prompt length: {len(validation_prompt)} characters"
+      )
 
       # Get the response from the agent
+      logger.debug(
+        "Sending validation prompt to agent for processing"
+      )
       response = await agent.generate_response(
         Message(
           content=validation_prompt,
         )
       )
+      logger.debug(
+        f"Received response of length {len(response.content)} characters"
+      )
 
       # Parse the response as JSON
       try:
         # Extract JSON from the response if it's wrapped in markdown code blocks
+        logger.debug(
+          "Extracting JSON from agent response"
+        )
         content = response.content
         if "```json" in content:
+          logger.debug(
+            "Found JSON code block in response"
+          )
           content = (
             content.split("```json")[1]
             .split("```")[0]
             .strip()
           )
         elif "```" in content:
+          logger.debug(
+            "Found generic code block in response"
+          )
           content = (
             content.split("```")[1]
             .split("```")[0]
             .strip()
           )
+        logger.debug(
+          f"Extracted content length: {len(content)} characters"
+        )
 
+        logger.debug("Parsing JSON content")
         validation_result = json.loads(content)
-
         logger.debug(
           f"Validation result: {validation_result}"
+        )
+
+        # Log specific validation results
+        logger.info(
+          f"Validation valid: {validation_result.get("valid", False)}"
+        )
+        logger.info(
+          f"Task accomplished: {validation_result.get("task_accomplished", False)}"
+        )
+
+        if validation_result.get("issues"):
+          logger.warning(
+            f"Validation issues: {validation_result.get("issues")}"
+          )
+        else:
+          logger.debug("No validation issues found")
+
+        logger.debug(
+          f"Validation comments: {validation_result.get("comments", "")}"
         )
 
         return validation_result

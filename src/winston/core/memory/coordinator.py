@@ -151,6 +151,15 @@ class MemoryCoordinator(BaseAgent):
         "Shared workspace required for memory operations"
       )
 
+    # Check if we're in query mode (used by Reasoning Coordinator)
+    query_mode = message.metadata.get(
+      "query_mode", False
+    )
+    if query_mode:
+      logger.info(
+        "Operating in query mode - skipping episode analysis and workspace updates"
+      )
+
     # Load the current workspace
     workspace_manager = WorkspaceManager()
     current_workspace = (
@@ -165,52 +174,53 @@ class MemoryCoordinator(BaseAgent):
       current_workspace
     )
 
-    logger.trace(
-      "Evaluating context shift with episode analyst."
-    )
-    # Let episode analyst evaluate the context shift
-    async with ProcessingStep(
-      name="Episode Analysis agent", step_type="run"
-    ) as step:
-      episode_analysis = {}
-      async for (
-        response
-      ) in self.episode_analyst.process(message):
-        if not response.metadata.get("streaming"):
-          logger.trace(
-            f"Raw episode analysis obtained: {response}"
-          )
-          episode_analysis = (
-            EpisodeBoundaryResult.model_validate_json(
+    # Only perform episode analysis if not in query mode
+    episode_analysis = None
+    if not query_mode:
+      logger.trace(
+        "Evaluating context shift with episode analyst."
+      )
+      # Let episode analyst evaluate the context shift
+      async with ProcessingStep(
+        name="Episode Analysis agent", step_type="run"
+      ) as step:
+        episode_analysis = {}
+        async for (
+          response
+        ) in self.episode_analyst.process(message):
+          if not response.metadata.get("streaming"):
+            logger.trace(
+              f"Raw episode analysis obtained: {response}"
+            )
+            episode_analysis = EpisodeBoundaryResult.model_validate_json(
               response.content
             )
-          )
-          # Update the step
-          await step.show_response(
-            Response(
-              content=dedent(f"""
+            # Update the step
+            await step.show_response(
+              Response(
+                content=dedent(f"""
 ```markdown
 # Episode Analysis:
 
 - New Episode: {episode_analysis.is_new_episode}
 - Preserve Context: {json.dumps(episode_analysis.preserve_context, indent=2)}
 ```""").strip(),
-              metadata=message.metadata,
+                metadata=message.metadata,
+              )
             )
-          )
 
-          # Add the episode analysis to the message metadata,
-          # making it available to downstream agents
-          message.metadata["is_new_episode"] = (
-            episode_analysis.is_new_episode
-          )
-          message.metadata["preserve_context"] = (
-            episode_analysis.preserve_context
-          )
+            # Add the episode analysis to the message metadata,
+            # making it available to downstream agents
+            message.metadata["is_new_episode"] = (
+              episode_analysis.is_new_episode
+            )
+            message.metadata["preserve_context"] = (
+              episode_analysis.preserve_context
+            )
 
-    logger.info(
-      f"Episode analysis completed: {episode_analysis}"
-    )
+      logger.info(
+        f"Episode analysis completed: {episode_analysis}"
+      )
 
     logger.trace(
       "Handling knowledge operations with semantic memory specialist."
@@ -258,23 +268,44 @@ class MemoryCoordinator(BaseAgent):
 # Semantic Memory Results:
 
 ## Retrieved Context:
-- Content: {semantic_result.content if semantic_result.content else 'None'}
-- Relevance: {semantic_result.relevance if semantic_result.relevance else 'N/A'}
+- Content: {semantic_result.content if semantic_result.content else "None"}
+- Relevance: {semantic_result.relevance if semantic_result.relevance else "N/A"}
 - Additional Results: {len(semantic_result.lower_relevance_results) if semantic_result.lower_relevance_results else 0}
 
 ## Storage Results:
-- ID: {semantic_result.id if semantic_result.id else 'No storage'}
-- Action: {semantic_result.action if semantic_result.action else 'None'}
-- Reason: {semantic_result.reason if semantic_result.reason else 'N/A'}
+- ID: {semantic_result.id if semantic_result.id else "No storage"}
+- Action: {semantic_result.action if semantic_result.action else "None"}
+- Reason: {semantic_result.reason if semantic_result.reason else "N/A"}
 ```""").strip(),
               metadata=message.metadata,
             )
           )
 
-    # Finally, let working memory specialist update workspace
+    # If in query mode, return the semantic results without updating the workspace
+    if query_mode:
+      logger.info(
+        "Query mode: returning semantic results without workspace updates"
+      )
+      yield Response(
+        content=json.dumps(
+          {
+            "content": semantic_result.content
+            if semantic_result
+            else None,
+            "relevance": semantic_result.relevance
+            if semantic_result
+            else None,
+            "lower_relevance_results": semantic_result.lower_relevance_results
+            if semantic_result
+            else [],
+          },
+          default=str,
+        ),
+        metadata=message.metadata,
+      )
+      return
 
-    # if this is a new episode, get fresh template
-
+    # If not in query mode, proceed with working memory updates
     # Use a new message that only has the latest user message and metadata needed.
     # This ensures the LLM doesn't get distracted by the conversation history.
     metadata = {
@@ -282,6 +313,9 @@ class MemoryCoordinator(BaseAgent):
         "is_new_episode"
       ),
     }
+
+    # Always load the current workspace content from the file
+    # This ensures we're using the actual content, not potentially stale metadata
     if message.metadata.get("is_new_episode"):
       metadata["current_workspace"] = (
         workspace_manager.get_workspace_template(
@@ -289,9 +323,12 @@ class MemoryCoordinator(BaseAgent):
         )
       )
     else:
-      metadata["current_workspace"] = message.metadata[
-        "current_workspace"
-      ]
+      # Load the current workspace content directly from the file
+      metadata["current_workspace"] = (
+        workspace_manager.load_workspace(
+          message.metadata["shared_workspace"]
+        )
+      )
     if message.metadata.get("preserve_context"):
       metadata["preserve_context"] = (
         message.metadata.get("preserve_context")
@@ -332,16 +369,28 @@ class MemoryCoordinator(BaseAgent):
             )
           )
 
-    # Update the actual workspace file
-    logger.info("Saving updated content to workspace.")
-    workspace_manager.save_workspace(
-      message.metadata["shared_workspace"],
-      working_memory_result.updated_workspace,
-    )
+    # Update the actual workspace file if we have a valid result
+    if working_memory_result:
+      logger.info(
+        "Saving updated content to workspace."
+      )
+      workspace_manager.save_workspace(
+        message.metadata["shared_workspace"],
+        working_memory_result.updated_workspace,
+      )
 
-    # Memory operations are complete, yield the result of
-    # the updated workspacce as a response
-    yield Response(
-      content=working_memory_result.updated_workspace,
-      metadata=message.metadata,
-    )
+      # Memory operations are complete, yield the result of
+      # the updated workspace as a response
+      yield Response(
+        content=working_memory_result.updated_workspace,
+        metadata=message.metadata,
+      )
+    else:
+      logger.error(
+        "No valid working memory result obtained, cannot update workspace."
+      )
+      # Return the original workspace content as a fallback
+      yield Response(
+        content=current_workspace,
+        metadata=message.metadata,
+      )
