@@ -53,14 +53,33 @@ class AgentChat:
     ValueError
         If agent is not found in system.
     """
-    system: AgentSystem = cast(
-      AgentSystem,
-      cl.user_session.get("system"),
-    )
-    agent_id: str = cast(
-      str,
-      cl.user_session.get("agent_id"),
-    )
+    # Get system and agent_id from session
+    system = cl.user_session.get("system")
+    agent_id = cl.user_session.get("agent_id")
+
+    # Check if system is None and reinitialize if needed
+    if system is None:
+      # Reinitialize the system and agent
+      self.system = AgentSystem()
+      agent = self.create_agent(self.system)
+
+      # Store system and agent_id in session
+      cl.user_session.set("system", self.system)  # type: ignore
+      cl.user_session.set("agent_id", agent.id)  # type: ignore
+
+      # Update local variables
+      system = self.system
+      agent_id = agent.id
+
+      # Inform the user that the session was reinitialized
+      await cl.Message(
+        content="Session was reinitialized. Please try your message again."
+      ).send()
+      return
+
+    # Cast to proper types now that we've verified they're not None
+    system = cast(AgentSystem, system)
+    agent_id = cast(str, agent_id)
 
     # Get history in proper format
     history = cl.user_session.get("history", [])
@@ -137,12 +156,10 @@ class AgentChat:
       content=assistant_content
     )
 
-    history.extend(
-      [
-        user_message.to_history_format(),
-        assistant_message.to_history_format(),
-      ]
-    )
+    history.extend([
+      user_message.to_history_format(),
+      assistant_message.to_history_format(),
+    ])
 
     cl.user_session.set("history", history)  # type: ignore
 

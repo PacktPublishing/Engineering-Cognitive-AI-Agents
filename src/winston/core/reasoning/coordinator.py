@@ -1,80 +1,115 @@
-"""Reasoning Coordinator: Orchestrates systematic problem-solving through prediction and learning.
+"""Reasoning Coordinator: Orchestrates systematic problem-solving through memory-informed reasoning.
 
-The Reasoning Coordinator implements a problem-solving cycle by coordinating specialist
-agents that work together to understand, solve, and learn from challenges. While this
-process aligns with the Free Energy Principle's uncertainty reduction, its primary
-purpose is pragmatic: solving real problems effectively.
+The Reasoning Coordinator implements a sophisticated problem-solving cycle by coordinating specialist
+agents that work together to understand, solve, and learn from challenges. It integrates memory
+at each stage of reasoning to enhance problem-solving capabilities and build a growing knowledge base.
 
 Architecture Overview:
 ```mermaid
 graph TD
     RC[Reasoning Coordinator] -->|State Management| WS[Workspace]
-    RC -->|Problem Analysis| HA[Hypothesis Agent]
-    HA -->|Solution Predictions| RC
-    RC -->|Solution Testing| IA[Inquiry Agent]
-    IA -->|Test Strategy| RC
-    RC -->|Results Analysis| VA[Validation Agent]
-    VA -->|Learning| RC
-    RC <-->|Knowledge Exchange| MC[Memory Coordinator]
+    MC[Memory Coordinator] <-->|Knowledge Exchange| RC
+    RC -->|Query Context| MC
+    RC -->|Store Learnings| MC
+
+    subgraph "Reasoning Stages"
+        RC -->|Stage 1| HA[Hypothesis Agent]
+        HA -->|Results| RC
+        RC -->|Stage 2| IA[Inquiry Agent]
+        IA -->|Results| RC
+        RC -->|Stage 3| VA[Validation Agent]
+        VA -->|Results| RC
+    end
+
+    subgraph "Memory Integration"
+        RC -->|Before Hypothesis| QH[Query Memory]
+        QH -->|Problem Context| HA
+        RC -->|Before Inquiry| QI[Query Memory]
+        QI -->|Hypothesis Context| IA
+        RC -->|Before Validation| QV[Query Memory]
+        QV -->|Inquiry Context| VA
+    end
+
+    subgraph "Learning Capture"
+        HA -->|Hypothesis Learnings| LC[Learning Capture]
+        IA -->|Inquiry Learnings| LC
+        VA -->|Validation Learnings| LC
+        LC -->|Store| MC
+    end
 ```
 
-Design Philosophy:
-The reasoning system implements an iterative problem-solving cycle that:
-1. Maintains state through a workspace-based approach
-2. Tracks reasoning progress through defined stages:
-   - Initial Analysis
-   - Hypothesis Generation
-   - Inquiry Design
-   - Validation
-3. Integrates with memory for:
-   - Retrieving relevant past experiences
-   - Storing new insights and learnings
-4. Recognizes when user input is needed
+Reasoning Stages:
+1. HYPOTHESIS_GENERATION
+   - Analyzes the problem and generates potential solutions
+   - Consults memory for similar problems and relevant domain knowledge
+   - Updates workspace with hypotheses and their confidence levels
 
-Core Process Flow:
-1. State Determination
-   - Check if continuing existing problem or starting new one
-   - Determine current reasoning stage
-   - Decide if user input needed
+2. INQUIRY_DESIGN
+   - Designs tests to validate the hypotheses
+   - Consults memory for relevant test designs and validation approaches
+   - Updates workspace with test designs and execution plans
 
-2. Knowledge Integration
-   - Gather stage-appropriate knowledge from memory
-   - Update workspace with relevant context
-   - Track solution progress
+3. VALIDATION
+   - Analyzes test results and validates hypotheses
+   - Consults memory for interpretation frameworks and previous conclusions
+   - Updates workspace with validation results and confidence assessments
 
-3. Specialist Coordination
-   - Dispatch to appropriate specialist based on stage
-   - Hypothesis Agent: Solution generation
-   - Inquiry Agent: Test design
-   - Validation Agent: Results analysis
+4. Additional States:
+   - NEEDS_USER_INPUT: Requests additional information from the user
+   - PROBLEM_SOLVED: Indicates the problem has been successfully solved
+   - PROBLEM_UNSOLVABLE: Indicates the problem cannot be solved with current constraints
 
-4. Learning Capture
-   - Store stage-specific insights
-   - Update memory with new learnings
-   - Preserve solution patterns
+Memory Integration Flow:
+1. Before each specialist agent runs:
+   - Query memory for relevant context based on the current stage
+   - Extract problem statement, hypotheses, or inquiry results as needed
+   - Update workspace with retrieved memory context in the Learning Capture section
 
-The coordinator ensures these components work together in a dynamic cycle,
-maintaining state between interactions and building a growing repertoire of
-effective problem-solving strategies. It recognizes that complex problems
-often require multiple iterations and user interactions to reach a solution.
+2. After each specialist agent completes:
+   - Extract specialist results from the workspace
+   - Store learnings in memory with appropriate metadata
+   - Associate learnings with the problem domain for future retrieval
 
-Example Flow:
-When facing a problem (e.g. "How to improve this system's performance?"):
+Workspace Management:
+1. Maintains a structured markdown workspace with sections for:
+   - Current Problem: The problem statement
+   - Reasoning Stage: The current stage in the reasoning process
+   - Background Knowledge: Relevant information from memory
+   - Learning Capture: Insights from memory relevant to the current stage
+   - Specialist Results: Outputs from hypothesis, inquiry, and validation agents
+
+2. Ensures proper stage transitions by:
+   - Updating the reasoning stage in the workspace
+   - Removing duplicate content to maintain clarity
+   - Preserving the logical flow of information
+
+Implementation Details:
+- Uses a decision-based approach to determine the next reasoning stage
+- Provides clear explanations for stage transitions
+- Supports context reset for new problems
+- Archives previous workspaces for reference
+- Handles workspace updates through delta-based editing for efficiency
+
+Example Reasoning Cycle:
 1. Initialize workspace with problem statement
-2. Gather relevant past experiences from memory
-3. Generate initial hypotheses
-4. Check if more information needed from user
-5. Design and run tests when ready
-6. Validate results and capture learnings
-7. Either continue cycle or mark problem as solved
+2. Query memory for relevant problem context
+3. Generate hypotheses with memory-informed context
+4. Store hypothesis learnings in memory
+5. Transition to inquiry design stage
+6. Query memory for relevant test design context
+7. Design tests with memory-informed context
+8. Store inquiry learnings in memory
+9. Transition to validation stage
+10. Query memory for relevant validation context
+11. Validate results with memory-informed context
+12. Store validation learnings in memory
+13. Determine if problem is solved, needs more iterations, or requires user input
 
-Key Principles:
-- Maintain clear state through workspace
-- Integrate memory at each stage
-- Recognize need for user input
-- Learn from both successes and failures
-- Build solution patterns from experience
-- Support iterative problem-solving
+This memory-integrated reasoning approach enables Winston to:
+- Learn from past experiences
+- Apply relevant knowledge to new problems
+- Build a growing repertoire of problem-solving strategies
+- Improve reasoning effectiveness over time
 """
 
 import json
@@ -83,7 +118,7 @@ from collections.abc import AsyncIterator
 from enum import StrEnum, auto
 from pathlib import Path
 from textwrap import dedent
-from typing import cast
+from typing import Any, cast
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -100,7 +135,6 @@ from winston.core.system import AgentSystem
 from winston.core.tools import Tool
 from winston.core.workspace import WorkspaceManager
 
-from .constants import AGENCY_WORKSPACE_KEY
 from .hypothesis import HypothesisAgent
 from .inquiry import InquiryAgent
 from .validation import ValidationAgent
@@ -230,11 +264,11 @@ class ReasoningCoordinator(BaseAgent):
 
         # Log the validation result
         logger.debug(
-          f"Edit validation result: {result['validation']}"
+          f"Edit validation result: {result["validation"]}"
         )
 
         # Log the diff for debugging
-        logger.debug(f"Edit diff:\n{result['diff']}")
+        logger.debug(f"Edit diff:\n{result["diff"]}")
 
       except Exception as e:
         # Fall back to direct save if edit_file fails
@@ -294,6 +328,48 @@ class ReasoningCoordinator(BaseAgent):
           decision.workspace_updates
         )
     return decision
+
+  def _update_reasoning_stage(
+    self, content: str, stage: ReasoningStage
+  ) -> str:
+    """Update the reasoning stage in the workspace content.
+
+    Parameters
+    ----------
+    content : str
+        The current workspace content
+    stage : ReasoningStage
+        The new reasoning stage
+
+    Returns
+    -------
+    str
+        The updated workspace content
+    """
+    # Check if the content has a "Reasoning Stage" section
+    if "# Reasoning Stage" in content:
+      # Split the content at the "Reasoning Stage" section
+      parts = content.split("# Reasoning Stage")
+      if len(parts) > 1:
+        # Get the part after "# Reasoning Stage"
+        stage_part = parts[1]
+        # Find the end of the stage line (next newline)
+        end_of_stage = stage_part.find("\n", 1)
+        if end_of_stage > 0:
+          # Replace the stage line with the new stage
+          updated_content = (
+            parts[0]
+            + "# Reasoning Stage\n"
+            + stage.name
+            + stage_part[end_of_stage:]
+          )
+          return updated_content
+
+    # If we couldn't find the section or update it, return the original content
+    logger.warning(
+      "Could not update reasoning stage in workspace"
+    )
+    return content
 
   async def _cleanup_workspace(self) -> None:
     """Clean up workspace for a new problem context."""
@@ -366,23 +442,34 @@ class ReasoningCoordinator(BaseAgent):
         if problem_lines:
           problem_statement = problem_lines[0].strip()
 
-    # Extract hypothesis results if available
-    hypothesis_content = ""
-    if (
-      "# Hypothesis Generation Results"
-      in workspace_content
-    ):
-      hypothesis_parts = workspace_content.split(
+    # Extract specialist results if available based on the current stage
+    specialist_content = ""
+    section_header = ""
+
+    if stage == ReasoningStage.HYPOTHESIS_GENERATION:
+      section_header = (
         "# Hypothesis Generation Results"
       )
-      if len(hypothesis_parts) > 1:
-        hypothesis_content = hypothesis_parts[
+    elif stage == ReasoningStage.INQUIRY_DESIGN:
+      section_header = "# Inquiry Design Results"
+    elif stage == ReasoningStage.VALIDATION:
+      section_header = "# Validation Results"
+
+    if (
+      section_header
+      and section_header in workspace_content
+    ):
+      specialist_parts = workspace_content.split(
+        section_header
+      )
+      if len(specialist_parts) > 1:
+        specialist_content = specialist_parts[
           1
         ].strip()
         # Find the next section if any
-        next_section = hypothesis_content.find("#")
+        next_section = specialist_content.find("\n# ")
         if next_section > 0:
-          hypothesis_content = hypothesis_content[
+          specialist_content = specialist_content[
             :next_section
           ].strip()
 
@@ -402,18 +489,14 @@ Solution Process: {workspace_content}""",
         },
       )
     else:
-      # Include extracted hypothesis content if available
+      # Include extracted specialist content if available
       content_to_store = workspace_content
-      if (
-        hypothesis_content
-        and stage
-        == ReasoningStage.HYPOTHESIS_GENERATION
-      ):
+      if specialist_content:
         content_to_store = f"""# Current Problem
 {problem_statement}
 
-# Hypothesis Generation Results
-{hypothesis_content}"""
+{section_header}
+{specialist_content}"""
 
       memory_message = Message(
         content=f"""Please store interim learnings from reasoning stage {stage.name}:
@@ -442,11 +525,507 @@ Current State: {content_to_store}""",
       if not response.metadata.get("streaming", True):
         break
 
+  async def _process_specialist_response(
+    self,
+    specialist_name: str,
+    content: str,
+    workspace_content: str,
+    response_metadata: dict[str, Any],
+  ) -> Response:
+    """Process a specialist agent's response and update the workspace.
+
+    This helper method centralizes the workspace update logic for all specialist agents.
+
+    Parameters
+    ----------
+    specialist_name : str
+        Name of the specialist (e.g., "Hypothesis Generation", "Inquiry Design", "Validation")
+    content : str
+        Content returned by the specialist agent
+    workspace_content : str
+        Current workspace content before the update
+    response_metadata : dict
+        Metadata from the specialist agent's response
+
+    Returns
+    -------
+    Response
+        Updated response with workspace content
+    """
+    # Determine the section header based on the specialist name
+    section_header = f"# {specialist_name} Results"
+
+    # Check if the workspace exists and has content
+    if (
+      self.agency_workspace.exists()
+      and workspace_content.strip()
+    ):
+      try:
+        # Create updated workspace content that includes the specialist content
+        updated_content = workspace_content
+
+        # Update the reasoning stage based on the specialist name
+        if specialist_name == "Hypothesis Generation":
+          updated_content = (
+            self._update_reasoning_stage(
+              updated_content,
+              ReasoningStage.HYPOTHESIS_GENERATION,
+            )
+          )
+        elif specialist_name == "Inquiry Design":
+          updated_content = (
+            self._update_reasoning_stage(
+              updated_content,
+              ReasoningStage.INQUIRY_DESIGN,
+            )
+          )
+        elif specialist_name == "Validation":
+          updated_content = (
+            self._update_reasoning_stage(
+              updated_content,
+              ReasoningStage.VALIDATION,
+            )
+          )
+
+        # Remove any existing specialist results sections to avoid duplication
+        # First check for the current specialist's section
+        if section_header in updated_content:
+          # Remove the existing section and its content
+          parts = updated_content.split(section_header)
+          # Keep the part before the section
+          updated_content = parts[0]
+
+          # If there are parts after this section, find the next major section
+          if len(parts) > 1:
+            remaining = parts[1]
+            next_section_pos = remaining.find("\n# ")
+            if next_section_pos > 0:
+              # Add everything from the next section onwards
+              updated_content += remaining[
+                next_section_pos:
+              ]
+
+        # Also remove any Learning Capture section that might contain duplicated content
+        if "## Learning Capture" in updated_content:
+          parts = updated_content.split(
+            "## Learning Capture"
+          )
+          # Keep the part before the Learning Capture section
+          updated_content = parts[0]
+
+          # If there are parts after this section, find the next major section
+          if len(parts) > 1:
+            remaining = parts[1]
+            next_section_pos = remaining.find("\n# ")
+            if next_section_pos > 0:
+              # Add everything from the next section onwards
+              updated_content += remaining[
+                next_section_pos:
+              ]
+
+        # Now add the new specialist results section at the end
+        # Make sure there's a newline before adding the section
+        if not updated_content.endswith("\n\n"):
+          if updated_content.endswith("\n"):
+            updated_content += "\n"
+          else:
+            updated_content += "\n\n"
+
+        # Add the section header and content
+        updated_content += (
+          f"{section_header}\n\n{content}"
+        )
+
+        # Save the updated content
+        self.workspace_manager.save_workspace(
+          self.agency_workspace,
+          updated_content,
+        )
+
+        # Return response with a summary instead of the full workspace content
+        # to avoid payload size issues
+        return Response(
+          content=content,  # Just return the specialist content
+          metadata={
+            **response_metadata,
+            "workspace": str(self.agency_workspace),
+            # Don't include the full workspace_content in metadata
+          },
+        )
+      except Exception as e:
+        # Fall back to direct save if update fails
+        logger.warning(
+          f"Workspace update failed, falling back to direct save: {e}"
+        )
+        self.workspace_manager.save_workspace(
+          self.agency_workspace,
+          content,
+        )
+    else:
+      # Save the new content directly to the workspace
+      self.workspace_manager.save_workspace(
+        self.agency_workspace,
+        content,
+      )
+
+    # Return response with the content
+    return Response(
+      content=content,
+      metadata={
+        **response_metadata,
+        "workspace": str(self.agency_workspace),
+        "workspace_content": content,
+      },
+    )
+
+  async def _query_memory_for_context(
+    self,
+    problem_statement: str,
+    stage: ReasoningStage,
+    workspace_content: str,
+  ) -> str:
+    """Query memory for relevant context based on the current stage.
+
+    Parameters
+    ----------
+    problem_statement : str
+        The problem statement
+    stage : ReasoningStage
+        The current reasoning stage
+    workspace_content : str
+        Current workspace content
+
+    Returns
+    -------
+    str
+        Relevant context from memory
+    """
+    query_content = ""
+
+    if stage == ReasoningStage.HYPOTHESIS_GENERATION:
+      # Before hypothesis generation, query for information related to the problem
+      query_content = f"""Please retrieve any relevant information from memory related to:
+Problem: {problem_statement}
+
+This information will be used for hypothesis generation. Focus on similar problems,
+relevant domain knowledge, and previous hypotheses that might be applicable."""
+
+    elif stage == ReasoningStage.INQUIRY_DESIGN:
+      # Before inquiry design, query for information related to the hypotheses
+      # Extract hypotheses from workspace
+      hypotheses = ""
+      if (
+        "# Hypothesis Generation Results"
+        in workspace_content
+      ):
+        hypothesis_parts = workspace_content.split(
+          "# Hypothesis Generation Results"
+        )
+        if len(hypothesis_parts) > 1:
+          hypothesis_content = hypothesis_parts[
+            1
+          ].strip()
+          # Find the next section if any
+          next_section = hypothesis_content.find(
+            "\n# "
+          )
+          if next_section > 0:
+            hypotheses = hypothesis_content[
+              :next_section
+            ].strip()
+          else:
+            hypotheses = hypothesis_content
+
+      query_content = f"""Please retrieve any relevant information from memory related to:
+Problem: {problem_statement}
+Hypotheses:
+{hypotheses}
+
+This information will be used for designing inquiries to test these hypotheses.
+Focus on previous test designs, validation approaches, and relevant experimental methods."""
+
+    elif stage == ReasoningStage.VALIDATION:
+      # Before validation, query for information related to the inquiry results
+      # Extract inquiry results from workspace
+      inquiry_results = ""
+      if (
+        "# Inquiry Design Results" in workspace_content
+      ):
+        inquiry_parts = workspace_content.split(
+          "# Inquiry Design Results"
+        )
+        if len(inquiry_parts) > 1:
+          inquiry_content = inquiry_parts[1].strip()
+          # Find the next section if any
+          next_section = inquiry_content.find("\n# ")
+          if next_section > 0:
+            inquiry_results = inquiry_content[
+              :next_section
+            ].strip()
+          else:
+            inquiry_results = inquiry_content
+
+      query_content = f"""Please retrieve any relevant information from memory related to:
+Problem: {problem_statement}
+Inquiry Results:
+{inquiry_results}
+
+This information will be used for validating the results of our inquiries.
+Focus on similar validation patterns, interpretation frameworks, and previous conclusions."""
+
+    if not query_content:
+      return ""
+
+    # Query memory coordinator
+    memory_context = ""
+    memory_message = Message(
+      content=query_content,
+      metadata={
+        "shared_workspace": self.workspace_path,
+        "semantic_metadata": json.dumps({
+          "reasoning_stage": stage.name,
+          "content_type": "query",
+          "problem_domain": problem_statement,
+        }),
+      },
+    )
+
+    # Process responses from memory coordinator
+    async for response in cast(
+      AsyncIterator[Response],
+      self.system.invoke_conversation(
+        "memory_coordinator",
+        memory_message.content,
+        context=memory_message.metadata,
+      ),
+    ):
+      if not response.metadata.get("streaming", True):
+        memory_context = response.content
+        break
+
+    return memory_context
+
+  async def _update_workspace_with_memory_context(
+    self,
+    workspace_content: str,
+    memory_context: str,
+    stage: ReasoningStage,
+  ) -> str:
+    """Update workspace with context from memory.
+
+    Parameters
+    ----------
+    workspace_content : str
+        Current workspace content
+    memory_context : str
+        Context retrieved from memory
+    stage : ReasoningStage
+        Current reasoning stage
+
+    Returns
+    -------
+    str
+        Updated workspace content
+    """
+    if not memory_context.strip():
+      return workspace_content
+
+    # Format the memory context as a Learning Capture section
+    stage_name = stage.name.replace("_", " ").title()
+    learning_section = f"""# Learning Capture
+## Relevant Knowledge for {stage_name}:
+{memory_context}
+"""
+
+    # Check if there's already a Learning Capture section
+    if "# Learning Capture" in workspace_content:
+      # Replace the existing Learning Capture section
+      parts = workspace_content.split(
+        "# Learning Capture"
+      )
+      # Keep the part before the Learning Capture section
+      updated_content = parts[0]
+
+      # If there are parts after this section, find the next major section
+      if len(parts) > 1:
+        remaining = parts[1]
+        next_section_pos = remaining.find("\n# ")
+        if next_section_pos > 0:
+          # Add everything from the next section onwards
+          updated_content += (
+            learning_section
+            + remaining[next_section_pos:]
+          )
+        else:
+          # No next section, just add the learning section
+          updated_content += learning_section
+      else:
+        # No parts after, just add the learning section
+        updated_content += learning_section
+    else:
+      # No existing Learning Capture section, add it before any specialist results
+      # Find the first specialist results section
+      specialist_pos = float("inf")
+      for header in [
+        "# Hypothesis Generation Results",
+        "# Inquiry Design Results",
+        "# Validation Results",
+      ]:
+        pos = workspace_content.find(header)
+        if pos >= 0 and pos < specialist_pos:
+          specialist_pos = pos
+
+      if specialist_pos < float("inf"):
+        # Insert before the first specialist results
+        updated_content = (
+          workspace_content[:specialist_pos]
+          + learning_section
+          + "\n\n"
+          + workspace_content[specialist_pos:]
+        )
+      else:
+        # No specialist results yet, add at the end
+        updated_content = (
+          workspace_content + "\n\n" + learning_section
+        )
+
+    return updated_content
+
+  async def _run_specialist_agent(
+    self,
+    agent_name: str,
+    specialist_agent: BaseAgent,
+    message: Message,
+    step: ProcessingStep,
+  ) -> AsyncIterator[Response]:
+    """Run a specialist agent and process its responses.
+
+    This helper method centralizes the specialist agent execution logic.
+
+    Parameters
+    ----------
+    agent_name : str
+        Name of the specialist (e.g., "Hypothesis Generation", "Inquiry Design", "Validation")
+    specialist_agent : BaseAgent
+        The specialist agent to run
+    message : Message
+        The original user message
+    step : ProcessingStep
+        The processing step for this specialist
+
+    Yields
+    ------
+    Response
+        Responses from the specialist agent
+    """
+    # Load current workspace content
+    workspace_content = (
+      self.workspace_manager.load_workspace(
+        self.agency_workspace
+      )
+    )
+
+    # Extract problem statement
+    problem_statement = message.content
+    if "# Current Problem" in workspace_content:
+      problem_parts = workspace_content.split(
+        "# Current Problem"
+      )
+      if len(problem_parts) > 1:
+        problem_lines = (
+          problem_parts[1].strip().split("\n")
+        )
+        if problem_lines:
+          problem_statement = problem_lines[0].strip()
+
+    # Determine the current stage based on the specialist agent
+    current_stage = (
+      ReasoningStage.HYPOTHESIS_GENERATION
+    )
+    if agent_name == "Hypothesis Generation":
+      current_stage = (
+        ReasoningStage.HYPOTHESIS_GENERATION
+      )
+    elif agent_name == "Inquiry Design":
+      current_stage = ReasoningStage.INQUIRY_DESIGN
+    elif agent_name == "Validation":
+      current_stage = ReasoningStage.VALIDATION
+
+    # Query memory for relevant context
+    memory_context = (
+      await self._query_memory_for_context(
+        problem_statement,
+        current_stage,
+        workspace_content,
+      )
+    )
+
+    # Update workspace with memory context
+    if memory_context:
+      updated_workspace = await self._update_workspace_with_memory_context(
+        workspace_content,
+        memory_context,
+        current_stage,
+      )
+
+      # Save the updated workspace
+      self.workspace_manager.save_workspace(
+        self.agency_workspace,
+        updated_workspace,
+      )
+
+      # Reload the workspace content
+      workspace_content = updated_workspace
+
+    # Create message with workspace content
+    specialist_message = Message(
+      content=message.content,
+      metadata={
+        **message.metadata,
+        "workspace_content": workspace_content,
+      },
+    )
+
+    # Process with specialist agent
+    async for response in specialist_agent.process(
+      specialist_message
+    ):
+      if response.metadata.get("streaming"):
+        yield response
+        continue
+
+      # For non-streaming responses, update the workspace
+      # Reload the workspace content to ensure we have the latest state
+      current_workspace_content = (
+        self.workspace_manager.load_workspace(
+          self.agency_workspace
+        )
+      )
+
+      updated_response = (
+        await self._process_specialist_response(
+          agent_name,
+          response.content,
+          current_workspace_content,
+          response.metadata,
+        )
+      )
+
+      # Show the response in the step
+      await step.show_response(updated_response)
+      yield updated_response
+
   async def process(
     self,
     message: Message,
   ) -> AsyncIterator[Response]:
     """Process messages to coordinate reasoning operations.
+
+    This method orchestrates the reasoning process by:
+    1. Making a decision about the current reasoning state
+    2. Dispatching to the appropriate specialist agent based on the decision
+    3. Updating the workspace with the specialist agent's results
+    4. Updating memory with learnings from the current stage
 
     The LLM will automatically use the handle_reasoning_decision tool
     due to required_tool in config. The tool handler validates and applies
@@ -536,15 +1115,6 @@ Current State: {content_to_store}""",
             },
           )
 
-        # Create agency message with workspace context
-        agency_message = Message(
-          content=message.content,
-          metadata={
-            **message.metadata,
-            AGENCY_WORKSPACE_KEY: self.agency_workspace,
-          },
-        )
-
         # Dispatch to appropriate specialist based on decided stage
         match decision.next_stage:
           case ReasoningStage.HYPOTHESIS_GENERATION:
@@ -554,20 +1124,12 @@ Current State: {content_to_store}""",
             ) as hypothesis_step:
               async for (
                 response
-              ) in self.hypothesis_agent.process(
-                agency_message
+              ) in self._run_specialist_agent(
+                "Hypothesis Generation",
+                self.hypothesis_agent,
+                message,
+                hypothesis_step,
               ):
-                if not response.metadata.get(
-                  "streaming"
-                ):
-                  response.metadata[
-                    "workspace_content"
-                  ] = self.workspace_manager.load_workspace(
-                    self.agency_workspace
-                  )
-                  await hypothesis_step.show_response(
-                    response
-                  )
                 yield response
 
           case ReasoningStage.INQUIRY_DESIGN:
@@ -577,20 +1139,12 @@ Current State: {content_to_store}""",
             ) as inquiry_step:
               async for (
                 response
-              ) in self.inquiry_agent.process(
-                agency_message
+              ) in self._run_specialist_agent(
+                "Inquiry Design",
+                self.inquiry_agent,
+                message,
+                inquiry_step,
               ):
-                if not response.metadata.get(
-                  "streaming"
-                ):
-                  response.metadata[
-                    "workspace_content"
-                  ] = self.workspace_manager.load_workspace(
-                    self.agency_workspace
-                  )
-                  await inquiry_step.show_response(
-                    response
-                  )
                 yield response
 
           case ReasoningStage.VALIDATION:
@@ -600,20 +1154,12 @@ Current State: {content_to_store}""",
             ) as validation_step:
               async for (
                 response
-              ) in self.validation_agent.process(
-                agency_message
+              ) in self._run_specialist_agent(
+                "Validation",
+                self.validation_agent,
+                message,
+                validation_step,
               ):
-                if not response.metadata.get(
-                  "streaming"
-                ):
-                  response.metadata[
-                    "workspace_content"
-                  ] = self.workspace_manager.load_workspace(
-                    self.agency_workspace
-                  )
-                  await validation_step.show_response(
-                    response
-                  )
                 yield response
 
           case ReasoningStage.NEEDS_USER_INPUT:
@@ -639,7 +1185,6 @@ Current State: {content_to_store}""",
             )
 
           case ReasoningStage.PROBLEM_UNSOLVABLE:
-            yield Response(
               content="Problem has been determined to be unsolvable",
               metadata={
                 "action": "problem_unsolvable",

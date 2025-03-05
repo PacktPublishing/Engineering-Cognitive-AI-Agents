@@ -196,7 +196,7 @@ The `ReasoningCoordinator` integrates these efforts with the `MemoryCoordinator`
 
 ## Simplified Actions with User Feedback
 
-To focus on reasoning, this chapter simplifies actions to proposing strategies and collecting user feedback, rather than executing complex tasks like code running. In the productivity use case, the system suggests time-blocking and asks the user to report back, using feedback as a placeholder for action outcomes. This approach:
+To focus on reasoning, this chapter simplifies actions to proposing strategies and collecting user feedback, rather than executing complex tasks like code running. In a productivity use case, the system suggests time-blocking and asks the user to report back, using feedback as a placeholder for action outcomes. This approach:
 
 1. **Emphasizes Reasoning**: Keeps the spotlight on hypothesis generation, inquiry design, and validation.
 2. **Engages Users**: Fosters collaborative problem-solving.
@@ -245,6 +245,94 @@ Here are five practical examples that illustrate how the Reasoning Agency can ta
 - **How Verification Might Proceed**: Calculate the reaction rate (e.g., time to stop fizzing or CO₂ volume per minute) for each temperature. Plot the rates against temperature to see if they increase as expected. Run the experiment a few times to ensure the trend holds.
 
 These problems are non-trivial because they involve multiple variables, require careful observation, and connect to real scientific principles—all while being doable at home. Hypothesis development keeps your experiments focused, the experiments themselves are hands-on and practical, and verification ensures your conclusions are reliable. Have fun exploring!
+
+---
+
+## Sequence Diagrams: Enhanced Reasoning Agency
+
+Below are two Mermaid sequence diagrams representing key phases of the "Enhanced Reasoning Agency" as described in Chapter 5 of _Engineering Cognitive AI Agents_. These diagrams illustrate the interactions within the system for (1) the initial problem formulation and (2) the experimental results and validation, including interactions with semantic memory. The diagrams are based on the system design and the specific example from the provided log file where the user queries Winston about the impact of flour types on bread texture and rise.
+
+### Diagram 1: Initial Problem Formulation
+
+This diagram depicts the sequence of interactions when the user poses the query "How does the type of flour (e.g., all-purpose, bread flour, whole wheat) affect the texture and rise of bread?" to Winston. It focuses on how the system formulates the problem and generates hypotheses, including interactions with semantic memory to retrieve relevant knowledge.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant RC as ReasoningCoordinator
+    participant HA as HypothesisAgent
+    participant SM as SemanticMemory
+    participant WS as Workspace
+
+    User->>RC: How does the type of flour affect bread texture and rise?
+    RC->>WS: Reset context for new problem
+    WS-->>RC: Context reset confirmed
+    RC->>HA: Generate hypotheses for the problem
+    HA->>SM: Retrieve relevant knowledge (flour properties, baking impacts)
+    SM-->>HA: Knowledge: Protein affects gluten, bran impacts density
+    HA->>RC: Hypotheses generated (e.g., bread flour increases rise)
+    RC->>WS: Update with hypotheses and problem statement
+```
+
+#### Explanation
+
+- **User**: Initiates the process by asking the question.
+- **ReasoningCoordinator (RC)**: Receives the query, determines it’s a new problem, and resets the context in the workspace to start fresh.
+- **Workspace (WS)**: Confirms the reset, providing a clean slate for the new problem.
+- **HypothesisAgent (HA)**: Tasked with generating hypotheses, it queries semantic memory for relevant background knowledge (e.g., flour protein content and its effects on gluten).
+- **SemanticMemory (SM)**: Returns stored knowledge that informs hypothesis generation.
+- **HypothesisAgent**: Generates hypotheses (e.g., "Bread flour increases rise due to higher protein") and sends them back to the coordinator.
+- **ReasoningCoordinator**: Updates the workspace with the problem statement and generated hypotheses, setting the stage for further reasoning.
+
+This sequence aligns with the log file, where the ReasoningCoordinator resets the context and initiates hypothesis generation (2025-03-02 04:34:32), and the HypothesisAgent produces detailed hypotheses about flour types (2025-03-02 04:34:41).
+
+### Diagram 2: Experimental Results and Validation
+
+This diagram illustrates the sequence after hypotheses have been generated and tests have been designed and executed (assumed to occur externally). It shows how the system processes test results, validates hypotheses, and updates semantic memory with new learnings.
+
+```mermaid
+sequenceDiagram
+    participant RC as ReasoningCoordinator
+    participant IA as InquiryAgent
+    participant VA as ValidationAgent
+    participant SM as SemanticMemory
+    participant WS as Workspace
+
+    RC->>IA: Design tests for hypotheses
+    IA-->>RC: Test designs (e.g., bake with different flours)
+    RC->>WS: Update with test designs
+    Note over RC: Tests executed externally, results received
+    RC->>VA: Validate hypotheses with test results
+    VA->>SM: Retrieve knowledge for validation (prior hypotheses)
+    SM-->>VA: Knowledge: Hypotheses and expected outcomes
+    VA-->>RC: Validation results (e.g., bread flour rises 20% more)
+    RC->>WS: Update with validation results
+    RC->>SM: Store learnings (e.g., validated impacts of flour)
+    SM-->>RC: Learnings stored
+```
+
+#### Explanation
+
+- **ReasoningCoordinator (RC)**: After hypotheses are generated, it instructs the InquiryAgent to design tests.
+- **InquiryAgent (IA)**: Designs practical tests (e.g., baking bread with different flours) and returns the plans to the coordinator.
+- **Workspace (WS)**: Updated with test designs to document the planned experiments.
+- **Note**: Test execution is assumed to occur outside the system, with results fed back to the ReasoningCoordinator (not detailed in the log but implied in the chapter’s full cycle).
+- **ReasoningCoordinator**: Passes the test results to the ValidationAgent for analysis.
+- **ValidationAgent (VA)**: Queries semantic memory to retrieve the original hypotheses and relevant knowledge for comparison with test results.
+- **SemanticMemory (SM)**: Provides the prior hypotheses (e.g., from HYPOTHESIS_GENERATION stage) to inform validation.
+- **ValidationAgent**: Analyzes results (e.g., bread flour increases rise by 20%) and updates hypothesis confidence levels, sending the analysis back to the coordinator.
+- **ReasoningCoordinator**: Updates the workspace with validation outcomes and sends new learnings (e.g., confirmed impacts of flour types) to semantic memory.
+- **SemanticMemory**: Confirms storage of the validated learnings, ensuring they’re available for future queries (as seen in the log at 2025-03-02 04:42:30).
+
+This sequence reflects the chapter’s intended flow, where the system progresses from inquiry design to validation, updating memory with interim learnings (log entry 2025-03-02 04:42:44 shows workspace updates post-validation).
+
+### Key Notes
+
+- **Semantic Memory Interactions**: Both diagrams include semantic memory to highlight its role in providing knowledge for hypothesis generation and validation, aligning with Chapter 5’s emphasis on memory integration.
+- **Simplified Flow**: The diagrams assume a linear progression for clarity, though the system supports iterative loops (e.g., refining hypotheses), which are not shown here but are part of the full design.
+- **Log File Context**: The initial formulation matches the log’s hypothesis generation phase, while the validation diagram infers the next steps based on the system’s design, as the log only partially covers validation before final response generation.
+
+These diagrams encapsulate the core interactions of the Enhanced Reasoning Agency in Chapter 5, providing a visual representation of how Winston processes the user’s query about flour and bread, from problem formulation to result validation.
 
 ---
 

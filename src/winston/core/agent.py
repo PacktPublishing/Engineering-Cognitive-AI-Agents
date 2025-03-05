@@ -1,5 +1,6 @@
 """Core agent interfaces and base implementation."""
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, cast
@@ -193,9 +194,14 @@ class BaseAgent(Agent):
         self.config.required_tool
         not in available_tools
       ):
-        raise ValueError(
+        logger.error(
           f"Required tool '{self.config.required_tool}' not found in available tools: {available_tools}"
         )
+        yield Response(
+          content=f"Configuration error: Required tool '{self.config.required_tool}' not available",
+          metadata={"error": True},
+        )
+        return
 
       tool_choice = {
         "type": "function",  # OpenAI format
@@ -204,48 +210,95 @@ class BaseAgent(Agent):
         },
       }
     logger.trace(f"Tool choice: {tool_choice}")
-    try:
-      logger.info("Starting LLM conversation...")
-      response = await acompletion(
-        model=self.config.model,
-        messages=messages,
-        temperature=self.config.temperature,
-        stream=self.config.stream,
-        tools=tools if tools else None,
-        tool_choice=tool_choice,
-        timeout=self.config.timeout,
-      )
-      logger.debug(
-        f"LLM Response received: {response}"
-      )
-      logger.debug(f"Response type: {type(response)}")
-      if (
-        hasattr(response, "choices")
-        and response.choices
-      ):
-        logger.debug(
-          f"First choice: {response.choices[0]}"
-        )
-      if self.config.stream:
-        async for (
-          chunk
-        ) in self._process_streaming_response(
-          cast(CustomStreamWrapper, response)
-        ):
-          yield chunk
-      else:
-        yield await self._process_single_response(
-          cast(ModelResponse, response)
-        )
 
-    except Exception as e:
-      logger.exception(
-        f"Exception occurred during conversation handling: {str(e)}"
-      )
-      yield Response(
-        content=f"Error generating response: {str(e)}",
-        metadata={"error": True},
-      )
+    # Add retry logic for API connection issues
+    max_retries = 2
+    retry_count = 0
+    backoff_time = 1.0  # Start with 1 second backoff
+
+    while retry_count <= max_retries:
+      try:
+        logger.info(
+          f"Starting LLM conversation (attempt {retry_count + 1}/{max_retries + 1})..."
+        )
+        response = await acompletion(
+          model=self.config.model,
+          messages=messages,
+          temperature=self.config.temperature,
+          stream=self.config.stream,
+          tools=tools if tools else None,
+          tool_choice=tool_choice,
+          timeout=self.config.timeout,
+        )
+        logger.debug(
+          f"LLM Response received: {response}"
+        )
+        logger.debug(
+          f"Response type: {type(response)}"
+        )
+        if (
+          hasattr(response, "choices")
+          and response.choices
+        ):
+          logger.debug(
+            f"First choice: {response.choices[0]}"
+          )
+        if self.config.stream:
+          try:
+            async for (
+              chunk
+            ) in self._process_streaming_response(
+              cast(CustomStreamWrapper, response)
+            ):
+              yield chunk
+            # If we get here without exception, break the retry loop
+            break
+          except Exception as stream_error:
+            if (
+              "cancel scope" in str(stream_error)
+              and retry_count < max_retries
+            ):
+              # This is likely the specific error we're trying to handle
+              logger.warning(
+                f"Streaming error (attempt {retry_count + 1}): {stream_error}. Retrying..."
+              )
+              retry_count += 1
+              await asyncio.sleep(backoff_time)
+              backoff_time *= 2  # Exponential backoff
+              continue
+            else:
+              # Different error or max retries reached, propagate it
+              logger.exception(
+                f"Unrecoverable streaming error: {stream_error}"
+              )
+              yield Response(
+                content=f"Error in streaming response: {str(stream_error)}",
+                metadata={"error": True},
+              )
+              break
+        else:
+          yield await self._process_single_response(
+            cast(ModelResponse, response)
+          )
+          break  # Success, exit retry loop
+
+      except Exception as e:
+        if retry_count < max_retries:
+          logger.warning(
+            f"API error (attempt {retry_count + 1}): {str(e)}. Retrying..."
+          )
+          retry_count += 1
+          await asyncio.sleep(backoff_time)
+          backoff_time *= 2  # Exponential backoff
+        else:
+          logger.exception(
+            f"Exception occurred during conversation handling after {max_retries + 1} attempts: {str(e)}"
+          )
+          yield Response(
+            content=f"Error generating response after multiple attempts: {str(e)}",
+            metadata={"error": True},
+          )
+          break
 
   def _prepare_messages(
     self, message: Message
@@ -286,108 +339,149 @@ class BaseAgent(Agent):
     tool_calls: list[ChatCompletionDeltaToolCall] = []
     accumulated_content: str = ""
 
-    async for chunk in response:
-      choices_list = cast(
-        list[StreamingChoices],
-        chunk["choices"],
-      )
-      choices: StreamingChoices = choices_list[0]
-      # logger.trace(f"Choices: {choices}")
-      # Handle tool calls completion
-      if (
-        hasattr(choices, "finish_reason")
-        and choices["finish_reason"]
-        in ("tool_calls", "stop")
-        and not tool_calls
-      ):
-        logger.debug(
-          "Stream completed with no tool calls present"
-        )
-        # Ensure tool calls are present if a tool choice was specified
-        if self.config.required_tool:
-          raise ValueError(
-            "Expected tool call in response but none found."
+    try:
+      async for chunk in response:
+        try:
+          choices_list = cast(
+            list[StreamingChoices],
+            chunk["choices"],
           )
-      elif (
-        hasattr(choices, "finish_reason")
-        and choices["finish_reason"]
-        in ("tool_calls", "stop")
-        and tool_calls
-      ):
-        results = []
-        for tool_call in tool_calls:
-          result = (
-            await self.tool_manager.execute_tool(
-              {
-                "name": tool_call.function["name"],
-                "arguments": tool_call.function[
-                  "arguments"
-                ],
-              }
-            )
-          )
-          results.append(result)
-
-          # Update the last response with the tool call result
-          if formatted_response := result.metadata.get(
-            "formatted_response"
+          choices: StreamingChoices = choices_list[0]
+          # logger.trace(f"Choices: {choices}")
+          # Handle tool calls completion
+          if (
+            hasattr(choices, "finish_reason")
+            and choices["finish_reason"]
+            in ("tool_calls", "stop")
+            and not tool_calls
           ):
-            self.state.last_response = (
-              formatted_response
+            logger.debug(
+              "Stream completed with no tool calls present"
             )
-          else:
-            self.state.last_response = result.content
-
-        # Yield all results
-        for result in results:
-          yield result
-        return
-
-      delta = choices.delta
-      if delta.tool_calls:
-        for tool_call in cast(
-          list[ChatCompletionDeltaToolCall],
-          delta["tool_calls"],
-        ):
-          if len(tool_calls) <= tool_call.index:
-            assert len(tool_calls) == tool_call.index
-            tool_calls.append(
-              ChatCompletionDeltaToolCall(
-                function=Function(
-                  arguments=None,
-                ),
-                index=tool_call.index,
+            # Ensure tool calls are present if a tool choice was specified
+            if self.config.required_tool:
+              logger.warning(
+                f"Expected tool call for {self.config.required_tool} but none found."
               )
+              # Continue instead of raising an exception to avoid crashing
+              continue
+          elif (
+            hasattr(choices, "finish_reason")
+            and choices["finish_reason"]
+            in ("tool_calls", "stop")
+            and tool_calls
+          ):
+            results = []
+            for tool_call in tool_calls:
+              try:
+                result = await self.tool_manager.execute_tool({
+                  "name": tool_call.function["name"],
+                  "arguments": tool_call.function[
+                    "arguments"
+                  ],
+                })
+                results.append(result)
+
+                # Update the last response with the tool call result
+                if (
+                  formatted_response
+                  := result.metadata.get(
+                    "formatted_response"
+                  )
+                ):
+                  self.state.last_response = (
+                    formatted_response
+                  )
+                else:
+                  self.state.last_response = (
+                    result.content
+                  )
+              except Exception as e:
+                logger.exception(
+                  f"Error executing tool call: {e}"
+                )
+                results.append(
+                  Response(
+                    content=f"Error executing tool: {str(e)}",
+                    metadata={"error": True},
+                  )
+                )
+
+            # Yield all results
+            for result in results:
+              yield result
+            return
+
+          delta = choices.delta
+          if delta.tool_calls:
+            for tool_call in cast(
+              list[ChatCompletionDeltaToolCall],
+              delta["tool_calls"],
+            ):
+              if len(tool_calls) <= tool_call.index:
+                assert (
+                  len(tool_calls) == tool_call.index
+                )
+                tool_calls.append(
+                  ChatCompletionDeltaToolCall(
+                    function=Function(
+                      arguments=None,
+                    ),
+                    index=tool_call.index,
+                  )
+                )
+
+              if tool_call.function.name:
+                tool_calls[
+                  tool_call.index
+                ].function.name = (
+                  tool_call.function.name
+                )
+
+              if tool_call.function.arguments:
+                tool_calls[
+                  tool_call.index
+                ].function.arguments += (
+                  tool_call.function.arguments
+                )
+
+          # Handle content
+          if (
+            hasattr(delta, "content")
+            and delta["content"] is not None
+          ):
+            accumulated_content += str(
+              delta["content"]
             )
-
-          if tool_call.function.name:
-            tool_calls[
-              tool_call.index
-            ].function.name = tool_call.function.name
-
-          if tool_call.function.arguments:
-            tool_calls[
-              tool_call.index
-            ].function.arguments += (
-              tool_call.function.arguments
+            yield Response(
+              content=delta["content"],
+              metadata={"streaming": True},
             )
+        except Exception as chunk_error:
+          logger.exception(
+            f"Error processing chunk: {chunk_error}"
+          )
+          yield Response(
+            content=f"Error processing response chunk: {str(chunk_error)}",
+            metadata={
+              "error": True,
+              "streaming": True,
+            },
+          )
 
-      # Handle content
-      if (
-        hasattr(delta, "content")
-        and delta["content"] is not None
-      ):
-        accumulated_content += str(delta["content"])
-        yield Response(
-          content=delta["content"],
-          metadata={"streaming": True},
+      if accumulated_content:
+        logger.debug(
+          f"Accumulated content: {accumulated_content}"
         )
-
-    if accumulated_content:
-      logger.debug(
-        f"Accumulated content: {accumulated_content}"
+        self.state.last_response = accumulated_content
+    except Exception as stream_error:
+      logger.exception(
+        f"Error in streaming response: {stream_error}"
       )
-      self.state.last_response = accumulated_content
+      yield Response(
+        content=f"Error in streaming response: {str(stream_error)}",
+        metadata={"error": True, "streaming": True},
+      )
 
   async def _process_single_response(
     self, response: ModelResponse
@@ -416,12 +510,10 @@ class BaseAgent(Agent):
     ):
       results = []
       for tool_call in message.tool_calls:
-        result = await self.tool_manager.execute_tool(
-          {
-            "name": tool_call.function.name,
-            "arguments": tool_call.function.arguments,
-          }
-        )
+        result = await self.tool_manager.execute_tool({
+          "name": tool_call.function.name,
+          "arguments": tool_call.function.arguments,
+        })
         results.append(result)
       return Response(
         content=str(results),
@@ -531,28 +623,75 @@ class BaseAgent(Agent):
         Streamed responses from the LLM
     """
     messages = self._prepare_messages(message)
-    try:
-      response = await acompletion(
-        model=self.config.model,
-        messages=messages,
-        temperature=self.config.temperature,
-        stream=True,
-        timeout=self.config.timeout,
-      )
 
-      async for (
-        chunk
-      ) in self._process_streaming_response(
-        cast(CustomStreamWrapper, response)
-      ):
-        yield chunk
+    # Add retry logic for API connection issues
+    max_retries = 2
+    retry_count = 0
+    backoff_time = 1.0  # Start with 1 second backoff
 
-    except Exception as e:
-      logger.error("LLM error", exc_info=True)
-      yield Response(
-        content=f"Error generating response: {str(e)}",
-        metadata={"error": True},
-      )
+    while retry_count <= max_retries:
+      try:
+        logger.info(
+          f"Starting streaming response generation (attempt {retry_count + 1}/{max_retries + 1})..."
+        )
+        response = await acompletion(
+          model=self.config.model,
+          messages=messages,
+          temperature=self.config.temperature,
+          stream=True,
+          timeout=self.config.timeout,
+        )
+
+        try:
+          async for (
+            chunk
+          ) in self._process_streaming_response(
+            cast(CustomStreamWrapper, response)
+          ):
+            yield chunk
+          # If we get here without exception, break the retry loop
+          break
+        except Exception as stream_error:
+          if (
+            "cancel scope" in str(stream_error)
+            and retry_count < max_retries
+          ):
+            # This is likely the specific error we're trying to handle
+            logger.warning(
+              f"Streaming error (attempt {retry_count + 1}): {stream_error}. Retrying..."
+            )
+            retry_count += 1
+            await asyncio.sleep(backoff_time)
+            backoff_time *= 2  # Exponential backoff
+            continue
+          else:
+            # Different error or max retries reached, propagate it
+            logger.exception(
+              f"Unrecoverable streaming error: {stream_error}"
+            )
+            yield Response(
+              content=f"Error in streaming response: {str(stream_error)}",
+              metadata={"error": True},
+            )
+            break
+
+      except Exception as e:
+        if retry_count < max_retries:
+          logger.warning(
+            f"API error (attempt {retry_count + 1}): {str(e)}. Retrying..."
+          )
+          retry_count += 1
+          await asyncio.sleep(backoff_time)
+          backoff_time *= 2  # Exponential backoff
+        else:
+          logger.exception(
+            f"LLM error after {max_retries + 1} attempts: {str(e)}"
+          )
+          yield Response(
+            content=f"Error generating response after multiple attempts: {str(e)}",
+            metadata={"error": True},
+          )
+          break
 
   async def generate_vision_response(
     self,
@@ -619,32 +758,78 @@ class BaseAgent(Agent):
       prompt, image_path
     )
 
-    try:
-      model = (
-        self.config.vision_model or self.config.model
-      )
-      response = await acompletion(
-        model=model,
-        messages=messages,
-        temperature=self.config.temperature,
-        stream=True,
-        timeout=self.config.timeout,
-      )
+    # Add retry logic for API connection issues
+    max_retries = 2
+    retry_count = 0
+    backoff_time = 1.0  # Start with 1 second backoff
 
-      # Process streaming response directly
-      async for chunk in cast(
-        CustomStreamWrapper, response
-      ):
-        choices = chunk["choices"][0]
-        if content := choices.delta.get("content"):
-          yield Response(content=content)
+    while retry_count <= max_retries:
+      try:
+        logger.info(
+          f"Starting vision streaming response (attempt {retry_count + 1}/{max_retries + 1})..."
+        )
+        model = (
+          self.config.vision_model or self.config.model
+        )
+        response = await acompletion(
+          model=model,
+          messages=messages,
+          temperature=self.config.temperature,
+          stream=True,
+          timeout=self.config.timeout,
+        )
 
-    except Exception as e:
-      logger.error("Vision model error", exc_info=True)
-      yield Response(
-        content=f"Error processing image: {str(e)}",
-        metadata={"error": True},
-      )
+        try:
+          # Process streaming response directly
+          async for chunk in cast(
+            CustomStreamWrapper, response
+          ):
+            choices = chunk["choices"][0]
+            if content := choices.delta.get("content"):
+              yield Response(content=content)
+          # If we get here without exception, break the retry loop
+          break
+        except Exception as stream_error:
+          if (
+            "cancel scope" in str(stream_error)
+            and retry_count < max_retries
+          ):
+            # This is likely the specific error we're trying to handle
+            logger.warning(
+              f"Vision streaming error (attempt {retry_count + 1}): {stream_error}. Retrying..."
+            )
+            retry_count += 1
+            await asyncio.sleep(backoff_time)
+            backoff_time *= 2  # Exponential backoff
+            continue
+          else:
+            # Different error or max retries reached, propagate it
+            logger.exception(
+              f"Unrecoverable vision streaming error: {stream_error}"
+            )
+            yield Response(
+              content=f"Error in vision streaming response: {str(stream_error)}",
+              metadata={"error": True},
+            )
+            break
+
+      except Exception as e:
+        if retry_count < max_retries:
+          logger.warning(
+            f"Vision API error (attempt {retry_count + 1}): {str(e)}. Retrying..."
+          )
+          retry_count += 1
+          await asyncio.sleep(backoff_time)
+          backoff_time *= 2  # Exponential backoff
+        else:
+          logger.exception(
+            f"Vision model error after {max_retries + 1} attempts: {str(e)}"
+          )
+          yield Response(
+            content=f"Error processing image after multiple attempts: {str(e)}",
+            metadata={"error": True},
+          )
+          break
 
   async def process(
     self,

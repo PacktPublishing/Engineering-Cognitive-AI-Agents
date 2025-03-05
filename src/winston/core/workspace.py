@@ -249,26 +249,30 @@ class WorkspaceManager:
     template: str | None = None,
     owner_id: str | None = None,
   ) -> None:
-    """Initialize a workspace if it doesn't exist."""
+    """Register workspace metadata without creating the file.
+
+    This method only registers the workspace owner and template information.
+    The actual file will be created lazily when the workspace is first accessed
+    for reading or writing.
+    """
     if owner_id:
       self._workspace_owners[workspace_path] = owner_id
     if template and owner_id:
       self._templates[owner_id] = template
 
-    if not workspace_path.exists():
+    # Only create the file if content is explicitly provided
+    if (
+      content is not None
+      and not workspace_path.exists()
+    ):
       logger.info(
-        f"Creating new workspace at {workspace_path}"
+        f"Creating new workspace at {workspace_path} with provided content"
       )
       workspace_path.parent.mkdir(
         parents=True, exist_ok=True
       )
       try:
-        workspace_path.write_text(
-          content
-          or self.get_workspace_template(
-            workspace_path
-          )
-        )
+        workspace_path.write_text(content)
         logger.debug(
           f"Workspace initialized successfully at {workspace_path}"
         )
@@ -301,13 +305,32 @@ class WorkspaceManager:
     self,
     workspace_path: Path,
   ) -> str:
-    """Load workspace content, initializing if needed."""
+    """Load workspace content, creating it on-demand if needed."""
     logger.debug(
       f"Loading workspace from {workspace_path}"
     )
     if workspace_path not in self._workspaces:
       try:
-        self.initialize_workspace(workspace_path)
+        # Check if the file exists
+        if not workspace_path.exists():
+          # Register the workspace metadata without creating the file
+          self.initialize_workspace(workspace_path)
+
+          # Now create the file on-demand since we're actually accessing it
+          logger.info(
+            f"Creating workspace on-demand at {workspace_path}"
+          )
+          workspace_path.parent.mkdir(
+            parents=True, exist_ok=True
+          )
+          workspace_path.write_text(
+            self.get_workspace_template(workspace_path)
+          )
+          logger.debug(
+            f"Workspace created on-demand at {workspace_path}"
+          )
+
+        # Read and cache the workspace content
         self._workspaces[workspace_path] = (
           workspace_path.read_text()
         )

@@ -12,7 +12,7 @@
 -e file:.
 aiofiles==23.2.1
     # via chainlit
-aiohappyeyeballs==2.4.6
+aiohappyeyeballs==2.4.8
     # via aiohttp
 aiohttp==3.11.13
     # via litellm
@@ -102,7 +102,7 @@ durationpy==0.9
     # via kubernetes
 executing==2.2.0
     # via stack-data
-fastapi==0.115.10
+fastapi==0.115.11
     # via chainlit
     # via chromadb
 feedfinder2==0.0.4
@@ -131,7 +131,7 @@ function-schema==0.4.5
     # via ecaa
 google-auth==2.38.0
     # via kubernetes
-googleapis-common-protos==1.68.0
+googleapis-common-protos==1.69.0
     # via opentelemetry-exporter-otlp-proto-grpc
     # via opentelemetry-exporter-otlp-proto-http
 grpcio==1.70.0
@@ -173,7 +173,7 @@ importlib-resources==6.5.2
 iniconfig==2.0.0
     # via pytest
 ipykernel==6.29.5
-ipython==9.0.0
+ipython==9.0.1
     # via ipykernel
 ipython-pygments-lexers==1.1.1
     # via ipython
@@ -205,7 +205,7 @@ kubernetes==32.0.1
     # via chromadb
 lazify==0.4.0
     # via chainlit
-litellm==1.61.20
+litellm==1.62.1
     # via ecaa
 literalai==0.1.103
     # via chainlit
@@ -345,7 +345,7 @@ platformdirs==4.3.6
     # via virtualenv
 pluggy==1.5.0
     # via pytest
-posthog==3.18.0
+posthog==3.18.1
     # via chromadb
 pre-commit==4.1.0
 prompt-toolkit==3.0.50
@@ -390,7 +390,7 @@ pypika==0.48.9
     # via chromadb
 pyproject-hooks==1.2.0
     # via build
-pytest==8.3.4
+pytest==8.3.5
     # via pytest-asyncio
 pytest-asyncio==0.25.3
     # via ecaa

@@ -92,33 +92,8 @@ workspace_template: |
   # Background Knowledge
   [Knowledge from memory about similar problems/solutions]
 
-  ## Generated Hypotheses
-  [Hypotheses will be added here by the hypothesis agent in the format:]
-  ### Hypothesis: [statement]
-  - Confidence: [0.0-1.0]
-  - Impact: [0.0-1.0]
-  - Evidence:
-    - [supporting point]
-    - [additional evidence]
-
-  ## Investigation Design
-  ### Test Strategy
-  [Test plans from inquiry agent]
-  - Test Cases:
-  - Success Criteria:
-  - Expected Results:
-
-  ### Validation Results
-  [Results from validation agent]
-  - Test Outcomes:
-  - Success Metrics:
-  - Areas for Improvement:
-
-  ## Learning Capture
+  # Learning Capture
   [Insights and patterns identified]
-  - Key Learnings:
-  - Pattern Recognition:
-  - Future Applications:
 
-  ## Next Steps
+  # Next Steps
   [What needs to be done next]

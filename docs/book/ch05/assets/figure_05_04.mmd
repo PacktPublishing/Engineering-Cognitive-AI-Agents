@@ -1,0 +1,36 @@
+---
+config:
+  layout: dagre
+---
+flowchart TB
+ subgraph User["User Interaction"]
+        I["Input/Message"]
+  end
+ subgraph MemoryInternals["Internal Memory Services"]
+        MS["Memory Specialists"]
+  end
+ subgraph Memory["Memory Agency"]
+        MC["Memory Coordinator"]
+        MemoryInternals
+  end
+ subgraph ReasoningInternals["Reasoning Specialists"]
+        HA["Hypothesis Agent"]
+        IA["Inquiry Agent"]
+        VA["Validation Agent"]
+  end
+ subgraph Reasoning["Reasoning Agency"]
+        RC["Reasoning Coordinator"]
+        ReasoningInternals
+  end
+    MC --> MS
+    RC --> HA & IA & VA & MC
+    I --> RC
+     MS:::specialist
+     MC:::coordinator
+     HA:::specialist
+     IA:::specialist
+     VA:::specialist
+     RC:::coordinator
+    classDef coordinator fill:#f9f,stroke:#333
+    classDef specialist fill:#bbf,stroke:#333
+    classDef internal fill:#eee,stroke:#666,stroke-dasharray: 5 5
