@@ -98,37 +98,105 @@ The future lies in an AI that operates as not just as a sophisticated tool, nor 
 
 ## The Reasoning Coordinator: Orchestrating an iterative process
 
-At the core of Winston's enhanced reasoning architecture is the `ReasoningCoordinator`, implemented in `winston/core/reasoning/coordinator.py`. This agent embodies orchestration and iteration, fundamental principles guiding the Reasoning Agency. Unlike the Memory Coordinator, limited to a linear data flow, the Reasoning Coordinator manages a full reasoning loop. This loop encompasses hypothesis generation, inquiry design, response evaluation, and iterative refinement of hypotheses or tests. Careful context tracking through precise workspace edits and prompting guide the course of action, aiming to minimize "surprise," a foundational concept consistent with the FEP. Implementing this system provides Winston with tools for self-discovery beyond mere data management.
+At the core of Winston's enhanced reasoning architecture is the `ReasoningCoordinator`, implemented in `winston/core/reasoning/coordinator.py`. This agent embodies orchestration and iteration, fundamental principles guiding the Reasoning Agency. Unlike the Memory Coordinator, limited to a linear data flow, the Reasoning Coordinator manages a full reasoning loop. This loop encompasses hypothesis generation, inquiry design, response evaluation, and iterative refinement of hypotheses or tests. Careful context tracking through precise workspace edits and prompting guide the course of action, aiming to minimize "surprise," a foundational concept consistent with the Free Energy Principle (FEP). Implementing this system provides Winston with tools for self-discovery beyond mere data management.
+
+The Reasoning Coordinator plays an expanded and central role in Winston's cognitive architecture. While the specialist agents (Hypothesis, Inquiry, and Validation) are relatively shallow at this stage—consisting primarily of reasoning prompts that generate structured outputs—the Coordinator handles the complex orchestration of the entire reasoning process. This design choice allows for a clear separation of concerns: the specialists focus on their specific cognitive tasks, while the Coordinator manages the overall flow, workspace state, memory integration, and decision-making about which stage to execute next.
 
 ### Re-entrancy and dynamic flows
 
-A defining characteristic of the Reasoning Coordinator is its re-entrant nature, a design influenced by the human ability to revisit and refine thought processes dynamically. Instead of rigidly directing the flow in a pre-determined sequence, the Coordinator continuously assesses progress with the Free Energy Principle mentioned throughout this chapter: does it need a new and interesting hypothesis, or is it just using the same thing over and over again? The coordinator takes these actions based on its analyses.
+A defining characteristic of the Reasoning Coordinator is its re-entrant nature, a design influenced by the human ability to revisit and refine thought processes dynamically. Instead of rigidly directing the flow in a pre-determined sequence, the Coordinator continuously assesses progress through the lens of the Free Energy Principle: does it need a new hypothesis to reduce uncertainty, or should it proceed to testing or validation? The coordinator makes these decisions based on its analysis of the current workspace state.
 
 Recall from Chapter 4 our core design philosophy: cognitive logic resides in the prompt. The Reasoning Coordinator exemplifies this, relying on its system prompt (defined in `config/agents/reasoning/coordinator.yaml`) to guide its decision-making process. The prompt's structure is designed to:
 
-1. Analyze the current reasoning context.
-2. Determine the appropriate next stage (Hypothesis Generation, Inquiry Design, Validation, etc.).
-3. Decide if a context reset is needed.
-4. Provide an explanation for its decision.
+1. Analyze the current reasoning context and continuity
+2. Determine the appropriate next stage (Hypothesis Generation, Inquiry Design, Validation, etc.)
+3. Decide if a context reset is needed for a new problem
+4. Provide an explanation for its decision
 
-The `coordinator.yaml` file defines the agent's role and decision criteria for managing the reasoning cycle.
+The `coordinator.yaml` file defines the agent's role and decision criteria for managing the reasoning cycle:
 
-```yaml
+````yaml
 id: reasoning_coordinator
+name: Reasoning Coordinator
+description: Coordinates reasoning operations between specialist agents
 model: gpt-4o-mini
+required_tool: handle_reasoning_decision
+
 system_prompt: |
   You are the Reasoning Coordinator in a Society of Mind system. Your ONLY role is to analyze the current reasoning context and determine appropriate next steps in the problem-solving process.
-  ... (rest of the prompt) ...
-```
 
-However, the code for the `ReasoningCoordinator` agent in `winston/core/reasoning/coordinator.py` is equally crucial. It supports the prompt's logic by:
+  Current workspace content:
+  ```markdown
+  {{ current_workspace }}
+````
 
-- **Action and Routing:** Directing the flow of messages to the appropriate specialist agents based on the `next_stage` decision from the prompt.
-- **Contextualizing:** Enriching messages with relevant metadata, such as the current workspace content, retrieved knowledge, and episode analysis results.
-- **Cleaning Up:** Resetting the workspace when a new problem is detected, ensuring a clean slate for the reasoning process.
-- **Managing State:** Persisting the workspace content between iterations, allowing the reasoning process to build upon previous results.
+Given input, analyze:
 
-For example, the `process` method in `ReasoningCoordinator` orchestrates the entire reasoning cycle:
+1. Context Continuity
+
+   - Is this a new problem requiring context reset?
+   - Does it build on the current reasoning context?
+   - What workspace sections need updates?
+
+2. Stage Progression
+
+   - What stage of reasoning are we in?
+   - What evidence indicates the current stage?
+   - What conditions suggest moving to next stage?
+
+3. Stage Requirements
+
+   - HYPOTHESIS_GENERATION is:
+
+     - The starting point for any new problem
+     - Needed when current hypotheses need revision
+     - Required when new evidence challenges existing hypotheses
+
+   - INQUIRY_DESIGN needed when:
+
+     - Hypotheses exist and need testing strategy
+     - Current tests need refinement
+     - New hypotheses require validation
+
+   - VALIDATION needed when:
+
+     - Test results available for analysis
+     - Hypotheses need evaluation
+     - Learning capture required
+
+   - NEEDS_USER_INPUT needed when:
+
+     - Critical information is missing
+     - Assumptions need verification
+     - Multiple viable paths require user decision
+     - Current approach hits unexpected obstacles
+
+   - PROBLEM_SOLVED appropriate when:
+
+     - Solution meets success criteria
+     - Test results validate hypotheses
+     - Implementation path is clear
+     - No significant uncertainties remain
+
+   - PROBLEM_UNSOLVABLE determined when:
+     - All reasonable hypotheses exhausted
+     - Fundamental blockers identified
+     - Resource/constraint conflicts unsolvable
+     - Core requirements proven impossible
+
+````
+
+The implementation in `winston/core/reasoning/coordinator.py` is equally crucial. It supports the prompt's logic through several key mechanisms:
+
+1. **Decision-Based Routing:** The Coordinator uses a specialized tool (`handle_reasoning_decision`) to make structured decisions about the next reasoning stage, which are then used to route messages to the appropriate specialist agents.
+
+2. **Memory Integration:** Before each specialist agent runs, the Coordinator queries memory for relevant context, and after each specialist completes, it stores learnings in memory.
+
+3. **Workspace Management:** The Coordinator maintains a structured workspace that captures the entire reasoning process, using sophisticated editing techniques to update specific sections while preserving overall context.
+
+4. **Specialist Agent Orchestration:** The Coordinator prepares context for specialists, dispatches to the appropriate agent, and processes their responses to maintain cognitive continuity.
+
+The `process` method in `ReasoningCoordinator` demonstrates this orchestration:
 
 ```python
 async def process(
@@ -136,60 +204,61 @@ async def process(
     message: Message,
   ) -> AsyncIterator[Response]:
     """Process messages to coordinate reasoning operations."""
-    # 1. Load current workspace content for context
+    # Get current workspace content
     current_content = self.workspace_manager.load_workspace(self.agency_workspace)
 
-    # 2. Initial decision making phase - what should we do next?
-    async with ProcessingStep(name="Reasoning Decision"):
-      # Let the LLM evaluate using current context and system prompt
-      decision_response = await self._handle_conversation(
+    # Initial decision making phase
+    async with ProcessingStep(name="Reasoning Decision", step_type="run"):
+      # Let the LLM evaluate the message using system prompt and tools
+      async for response in self._handle_conversation(
           Message(content=message.content, metadata={"current_workspace": current_content})
-      )
+      ):
+        if response.metadata.get("streaming"):
+          yield response
+          continue
 
-      # Parse decision about next steps (new problem? which stage needed?)
-      decision = ReasoningDecision.model_validate_json(decision_response.content)
+        # Tool has been executed, response contains the decision
+        decision = ReasoningDecision.model_validate_json(response.content)
 
-      # 3. Handle context reset if needed (for new problems)
-      if decision.requires_context_reset:
+        # Handle context reset if needed
+        if decision.requires_context_reset:
           await self._cleanup_workspace()
           await self._prepare_reasoning_workspace(message)
 
-      # 4. Route to appropriate specialist based on reasoning stage
-      if decision.next_stage == ReasoningStage.HYPOTHESIS_GENERATION:
-          # Dispatch to hypothesis agent
-          results = await self.hypothesis_agent.process(message_with_workspace_context)
-          yield results
+        # Apply workspace updates if provided
+        if decision.workspace_updates:
+          await self._apply_workspace_updates(decision.workspace_updates)
 
-      elif decision.next_stage == ReasoningStage.INQUIRY_DESIGN:
-          # Dispatch to inquiry agent
-          results = await self.inquiry_agent.process(message_with_workspace_context)
-          yield results
+        # Dispatch to appropriate specialist based on decided stage
+        match decision.next_stage:
+          case ReasoningStage.HYPOTHESIS_GENERATION:
+            async with ProcessingStep(name="Hypothesis Generation", step_type="run") as hypothesis_step:
+              async for response in self._run_specialist_agent(
+                  "Hypothesis Generation",
+                  self.hypothesis_agent,
+                  message,
+                  hypothesis_step,
+              ):
+                yield response
 
-      elif decision.next_stage == ReasoningStage.VALIDATION:
-          # Dispatch to validation agent
-          results = await self.validation_agent.process(message_with_workspace_context)
-          yield results
+          case ReasoningStage.INQUIRY_DESIGN:
+            # Similar dispatch for inquiry agent
 
-      elif decision.next_stage in (ReasoningStage.NEEDS_USER_INPUT,
-                               ReasoningStage.PROBLEM_SOLVED,
-                               ReasoningStage.PROBLEM_UNSOLVABLE):
-          # Handle terminal states
-          yield Response(content=f"Status: {decision.next_stage}",
-                     metadata={"action": str(decision.next_stage)})
+          case ReasoningStage.VALIDATION:
+            # Similar dispatch for validation agent
 
-      # 5. Update memory with learnings from this reasoning cycle
-      await self._update_memory_with_learnings(
-          message,
-          self.workspace_manager.load_workspace(self.agency_workspace),
-          decision.next_stage
-      )
-```
+          case ReasoningStage.NEEDS_USER_INPUT | ReasoningStage.PROBLEM_SOLVED | ReasoningStage.PROBLEM_UNSOLVABLE:
+            # Handle terminal states
 
-This method first loads the current workspace content and then uses the LLM (guided by the system prompt) to make a reasoning decision. Based on this decision, the method dispatches the message to the appropriate specialist agent (`HypothesisAgent`, `InquiryAgent`, or `ValidationAgent`).
+        # Update memory with stage-appropriate learnings
+        await self._update_memory_with_learnings(
+            message,
+            self.workspace_manager.load_workspace(self.agency_workspace),
+            decision.next_stage,
+        )
+````
 
-The code also handles context resets, workspace updates, and memory updates, ensuring that the reasoning process is well-managed and efficient.
-
-This interplay between the system prompt and the code is essential for the `ReasoningCoordinator`'s functionality. The prompt provides the cognitive logic, while the code provides the infrastructure and support for executing that logic.
+This implementation showcases the sophisticated orchestration capabilities of the Reasoning Coordinator, which goes far beyond simple message routing. The Coordinator actively manages the entire reasoning process, integrating memory, maintaining workspace state, and ensuring cognitive continuity across reasoning cycles.
 
 ### Practical orchestration: The Reasoning Coordinator in action
 
@@ -210,159 +279,253 @@ sequenceDiagram
     User->>RC: How does the type of flour affect bread texture and rise?
     RC->>WS: Reset context for new problem
     WS-->>RC: Context reset confirmed
-    RC->>HA: Generate hypotheses for the problem
-    HA->>SM: Retrieve relevant knowledge (flour properties, baking impacts)
-    SM-->>HA: Knowledge: Protein affects gluten, bran impacts density
-    HA->>RC: Hypotheses generated (e.g., bread flour increases rise)
+    RC->>SM: Query memory for relevant context
+    SM-->>RC: Knowledge: Flour properties, baking science
+    RC->>WS: Update workspace with memory context
+    RC->>HA: Generate hypotheses with workspace context
+    HA-->>RC: Hypotheses generated (e.g., bread flour increases rise)
     RC->>WS: Update with hypotheses and problem statement
+    RC->>SM: Store hypothesis learnings
+    SM-->>RC: Learnings stored
 ```
 
-The coordinator manages several critical functions in this phase:
+This sequence highlights several key aspects of the Coordinator's role:
 
-- Problem identification: Recognizing the need for a context reset when encountering a new query
-- Workspace management: Instructing the workspace to clear previous context
-- Agent routing: Delegating hypothesis generation to the specialized HypothesisAgent
-- Context integration: Updating the workspace with newly generated hypotheses to maintain state
+1. **Problem identification:** The Coordinator recognizes a new query and initiates a context reset
+2. **Memory integration:** Before specialist invocation, the Coordinator queries memory for relevant context
+3. **Workspace management:** The Coordinator maintains the workspace as the central state repository
+4. **Specialist orchestration:** The Coordinator prepares context for the HypothesisAgent and processes its results
+5. **Learning capture:** After the specialist completes, the Coordinator stores learnings in memory
 
-This sequence demonstrates the re-entrancy described earlier, as the coordinator determines the appropriate first step (hypothesis generation) based on its analysis of the incoming message.
+The memory integration aspect is particularly important, as it demonstrates how the Coordinator enriches the reasoning process with relevant knowledge before each specialist runs. This is implemented in the `_query_memory_for_context` method:
+
+```python
+async def _query_memory_for_context(
+    self,
+    problem_statement: str,
+    stage: ReasoningStage,
+    workspace_content: str,
+) -> str:
+    """Query memory for relevant context based on the current stage."""
+    # Formulate stage-specific memory query
+    if stage == ReasoningStage.HYPOTHESIS_GENERATION:
+        query_content = f"""Please retrieve any relevant information from memory related to:
+Problem: {problem_statement}
+
+This information will be used for hypothesis generation. Focus on similar problems,
+relevant domain knowledge, and previous hypotheses that might be applicable."""
+
+    elif stage == ReasoningStage.INQUIRY_DESIGN:
+        # Extract hypotheses from workspace and query for test design patterns
+        # ...
+
+    elif stage == ReasoningStage.VALIDATION:
+        # Extract inquiry results from workspace and query for validation frameworks
+        # ...
+
+    # Query memory coordinator with appropriate context
+    memory_message = Message(
+        content=query_content,
+        metadata={
+            "shared_workspace": self.workspace_path,
+            "semantic_metadata": json.dumps({
+                "reasoning_stage": stage.name,
+                "content_type": "query",
+                "problem_domain": problem_statement,
+            }),
+            # Set query_mode flag to prevent workspace modifications
+            "query_mode": True,
+        },
+    )
+
+    # Process memory response and return relevant context
+    # ...
+```
+
+This method demonstrates how the Coordinator tailors memory queries based on the current reasoning stage, ensuring that each specialist has access to the most relevant knowledge.
 
 #### Experimental results and validation phase
 
-After hypotheses have been generated and tested, the coordinator orchestrates the validation phase:
+After hypotheses have been generated and tests designed, the coordinator orchestrates the validation phase:
 
 ```mermaid
 sequenceDiagram
+    participant User
     participant RC as ReasoningCoordinator
-    participant IA as InquiryAgent
     participant VA as ValidationAgent
     participant SM as SemanticMemory
     participant WS as Workspace
 
-    RC->>IA: Design tests for hypotheses
-    IA-->>RC: Test designs (e.g., bake with different flours)
-    RC->>WS: Update with test designs
-    Note over RC: Tests executed externally, results received
-    RC->>VA: Validate hypotheses with test results
-    VA->>SM: Retrieve knowledge for validation (prior hypotheses)
-    SM-->>VA: Knowledge: Hypotheses and expected outcomes
-    VA-->>RC: Validation results (e.g., bread flour rises 20% more)
+    Note over User,WS: Test results received from user
+    User->>RC: Here are the results of the bread flour test
+    RC->>SM: Query memory for validation context
+    SM-->>RC: Knowledge: Previous validation patterns
+    RC->>WS: Update workspace with test results and memory context
+    RC->>VA: Validate hypotheses with workspace context
+    VA-->>RC: Validation results (e.g., bread flour hypothesis confirmed)
     RC->>WS: Update with validation results
-    RC->>SM: Store learnings (e.g., validated impacts of flour)
+    RC->>SM: Store validation learnings
     SM-->>RC: Learnings stored
+    RC->>User: Analysis of bread flour impact on rise (20% increase)
 ```
 
-In this phase, the coordinator demonstrates several key capabilities:
+In this phase, the Coordinator demonstrates several sophisticated capabilities:
 
-- Cycle management: Progressing from hypothesis to inquiry to validation
-- Workspace persistence: Maintaining context across different reasoning stages
-- Memory integration: Ensuring that new learnings are stored for future use
-- Process completion: Determining when the reasoning cycle has concluded successfully
+1. **Context continuity:** Maintaining the reasoning thread across multiple interactions
+2. **Memory-informed validation:** Enriching the validation process with relevant historical patterns
+3. **Learning integration:** Capturing validated knowledge for future reasoning cycles
+4. **Cognitive closure:** Determining when sufficient evidence exists to consider the problem solved
 
-The coordinator's role is particularly evident in how it manages the transitions between specialist agents, ensuring that each has the necessary context from previous stages while maintaining the overall coherence of the reasoning process.
-
-These interaction patterns illustrate how the Reasoning Coordinator implements the theoretical principles discussed earlier—re-entrancy, FEP-guided decision making, and Society of Mind collaboration—in concrete, operational terms.
+The Coordinator's role in managing the entire reasoning cycle is evident in how it handles the transitions between specialist agents, ensuring that each has the necessary context from previous stages while maintaining the overall coherence of the reasoning process.
 
 ### Handling workspace edits with precision
 
-A critical function of Winston's cognitive architecture is the ability to precisely modify workspace contents. The `WorkspaceManager` implements a three-phase approach to workspace editing that balances flexibility with safety:
+A critical function of Winston's cognitive architecture is the ability to precisely modify workspace contents. The Reasoning Coordinator implements sophisticated workspace management through the `WorkspaceManager`, which provides methods for initializing, loading, saving, and editing workspaces. This capability is essential for maintaining cognitive continuity across reasoning cycles.
 
-1. **Edit delta generation**: Translating high-level edit requests into specific operations
-2. **Operation application**: Applying these operations with line-level precision
-3. **Result validation**: Verifying that changes achieve the intended outcome
+The Coordinator uses several methods to manage workspace state:
 
-This approach decouples edit generation from application, mitigating the risks inherent in allowing an LLM to directly modify files. The system uses structured `EditOperation` objects to represent atomic changes:
+1. **Workspace Initialization:** When a new problem is encountered, the Coordinator initializes a fresh workspace using a template:
 
 ```python
-class EditOperation:
-    """Represents a single edit operation to be applied to a file."""
-
-    def __init__(
-        self,
-        action: str,  # "insert", "delete", or "replace"
-        location: Union[int, List[int], Tuple[int, int]],  # Line number(s)
-        content: Optional[str] = None,  # New content for insert/replace
-    ):
-        # ...initialization logic...
-```
-
-In the first phase, the `generate_edit_delta` method prompts an LLM agent with the file's content and a task description, instructing it to return a structured list of edit operations. This approach provides clearer guidance than asking for the complete modified file:
-
-```python
-async def generate_edit_delta(
+async def _prepare_reasoning_workspace(
     self,
-    file_path: Path,
-    task: str,
-    agent: Agent,
-    delta_template: str | None = None,
-) -> List[EditOperation]:
-    # Read the file content
-    file_content = file_path.read_text()
-
-    # Prepare the prompt with file content and task
-    template = Template(delta_template or DEFAULT_EDIT_DELTA_TEMPLATE)
-    delta_prompt = template.render(file_content=file_content, task=task)
-
-    # Get edit operations from the agent
-    response = await agent.generate_response(Message(content=delta_prompt))
-
-    # Parse and return structured edit operations
-    # ...parsing logic...
+    message: Message,
+) -> None:
+    """Prepare reasoning workspace for initial stage."""
+    template = self.config.workspace_template
+    content = template.format(
+        problem_statement=message.content,
+        stage=ReasoningStage.HYPOTHESIS_GENERATION.name,
+    )
+    self.workspace_manager.initialize_workspace(
+        self.agency_workspace,
+        owner_id=self.id,
+        template=template,
+        content=content,
+    )
 ```
 
-The second phase applies these operations with the `apply_edit_delta` method, which handles the complexities of line tracking as edits modify the file:
+2. **Workspace Updates:** The Coordinator applies updates to the workspace using a sophisticated edit mechanism:
 
 ```python
-def apply_edit_delta(
-    self,
-    file_path: Path,
-    edit_operations: List[EditOperation],
-    output_path: Path | None = None,
-) -> str:
-    # Track original line numbers as edits are applied
-    original_line_numbers = list(range(len(lines)))
+async def _apply_workspace_updates(
+    self, updates: str
+) -> None:
+    """Apply updates to the workspace content."""
+    if not updates.strip():
+        return
 
-    # For each operation (insert/delete/replace):
-    # - Map original line numbers to current positions
-    # - Apply the change while maintaining line number tracking
-    # - Update tracking data for subsequent operations
+    # Check if the workspace exists
+    if self.agency_workspace.exists():
+        # Use the edit_file method for more robust updates
+        try:
+            # Generate a task description for the edit
+            task = "Update the reasoning workspace with the latest content"
 
-    # ...application logic...
+            # Use the edit_file method which combines delta generation, application, and validation
+            result = await self.workspace_manager.edit_file(
+                self.agency_workspace,
+                task,
+                self,  # Use self as the agent
+                delta_template=None,  # Use default template
+                validation_template=None,  # Use default template
+            )
+
+            # Log the validation result and diff
+            logger.debug(f"Edit validation result: {result["validation"]}")
+            logger.debug(f"Edit diff:\n{result["diff"]}")
+
+        except Exception as e:
+            # Fall back to direct save if edit_file fails
+            logger.warning(f"Edit delta failed, falling back to direct save: {e}")
+            self.workspace_manager.save_workspace(
+                self.agency_workspace,
+                updates,
+            )
+    else:
+        # Simply save the provided content as the new workspace
+        self.workspace_manager.save_workspace(
+            self.agency_workspace,
+            updates,
+        )
 ```
 
-Finally, the validation phase confirms that edits were correctly applied and achieved the intended outcome:
+3. **Specialist Result Integration:** After each specialist agent completes, the Coordinator updates the workspace with the results:
 
 ```python
-async def validate_edit(
+async def _process_specialist_response(
     self,
-    original_content: str,
-    edited_content: str,
-    task: str,
-    edit_operations: List[EditOperation],
-    agent: Agent,
-    validation_template: str | None = None,
-) -> Dict[str, Any]:
-    # Present original content, edited content, and task to the agent
-    # Ask the agent to verify correctness and task completion
-    # Return structured validation results
+    specialist_name: str,
+    content: str,
+    workspace_content: str,
+    response_metadata: dict[str, Any],
+) -> Response:
+    """Process a specialist agent's response and update the workspace."""
+    # Determine the section header based on the specialist name
+    section_header = f"# {specialist_name} Results"
+
+    # Update the reasoning stage based on the specialist name
+    updated_content = self._update_reasoning_stage(
+        workspace_content,
+        current_stage,  # Determined based on specialist
+    )
+
+    # Remove any existing specialist results sections to avoid duplication
+    if section_header in updated_content:
+        # Remove the existing section and its content
+        # ...
+
+    # Add the new specialist results section
+    updated_content += f"{section_header}\n\n{content}"
+
+    # Save the updated content
+    self.workspace_manager.save_workspace(
+        self.agency_workspace,
+        updated_content,
+    )
+
+    # Return response with specialist content
+    return Response(
+        content=content,
+        metadata={
+            **response_metadata,
+            "workspace": str(self.agency_workspace),
+        },
+    )
 ```
 
-This three-phase process modifies how Winston interacts with its cognitive workspaces. Applying changes through controlled, atomic operations, rather than wholesale regeneration, protects against cascading errors and unintended modifications. Representing edits as discrete operations enhances transparency: developers and users can review proposed changes, rationale, and implementation. Coupled with the validation phase, this confirms edits not only apply correctly but achieve their intended purpose. The system maintains an edit history for each workspace to track its evolution and each agent's contributions, building accountability. These qualities make workspace editing a deliberate cognitive capability, reflecting a measured approach when modifying its own understanding rather than a purely utilitarian function.
+This sophisticated workspace management enables the Reasoning Coordinator to maintain a coherent cognitive state throughout the reasoning process. By carefully managing workspace updates, the Coordinator ensures that each specialist agent has access to the complete context from previous stages, while also preserving the overall structure of the workspace.
+
+The workspace serves as the central repository of state for the reasoning process, capturing the problem statement, current reasoning stage, background knowledge, learning capture, and specialist results. This structured approach to state management is essential for the re-entrant nature of the reasoning process, allowing the Coordinator to revisit earlier stages when necessary while maintaining cognitive continuity.
+
+## Specialist Agents: The Building Blocks of Reasoning
+
+While the Reasoning Coordinator orchestrates the overall reasoning process, the specialist agents—`HypothesisAgent`, `InquiryAgent`, and `ValidationAgent`—perform the core cognitive tasks within their respective domains. These specialists are intentionally designed to be relatively shallow at this stage of Winston's development, consisting primarily of reasoning prompts that generate structured outputs. This design choice allows for a clear separation of concerns, with the specialists focusing on their specific cognitive tasks while the Coordinator manages the overall flow, workspace state, memory integration, and decision-making.
+
+The specialist agents share a common implementation pattern:
+
+1. They receive workspace content from the Coordinator
+2. They analyze this content using their specialized reasoning prompts
+3. They generate structured outputs in a consistent format
+4. They return these outputs to the Coordinator, which integrates them into the workspace
+
+This pattern ensures that each specialist can focus on its specific cognitive task without needing to understand the broader reasoning process or manage workspace state directly. The Coordinator handles all the complexity of orchestration, allowing the specialists to remain focused and efficient.
 
 ## Hypothesis generation: Formulating testable predictions
 
 Hypothesis generation provides the foundational step for exploring potential solutions to a problem. It functions as the initial phase where the system formulates conjectures based on available knowledge. The `HypothesisAgent`, defined in `winston/core/reasoning/hypothesis.py`, transforms open-ended problems into structured, testable predictions. Implementing a core aspect of the Free Energy Principle, it reduces uncertainty by generating testable predictions through active inference, identifying areas of uncertainty, and proposing specific explanations that can be validated empirically.
 
-The `HypothesisAgent` primarily operates on workspace content rather than directly accessing memory systems, focusing on the immediate reasoning context provided by the workspace. It analyzes the current context, generates hypotheses, and updates the workspace with structured, prioritized predictions that include confidence levels, impact ratings, supporting evidence, and clear test criteria.
+The `HypothesisAgent` primarily operates on workspace content rather than directly accessing memory systems, focusing on the immediate reasoning context provided by the workspace. It analyzes the current context, generates hypotheses, and returns structured, prioritized predictions that include confidence levels, impact ratings, supporting evidence, and clear test criteria.
 
 ### System prompt
 
-The HypothesisAgent's cognitive behavior is guided by its system prompt, which uses a specialized model trained for reasoning (o1-mini). The prompt establishes clear expectations for generating structured, testable hypotheses that can be validated through subsequent inquiry and testing.
+The HypothesisAgent's cognitive behavior is guided by its system prompt, which uses a specialized model trained for reasoning (o3-mini). The prompt establishes clear expectations for generating structured, testable hypotheses that can be validated through subsequent inquiry and testing.
 
 ```yaml
 id: hypothesis_agent
 name: Hypothesis Agent
 description: Generates testable predictions about patterns and relationships
-model: o1-mini
+model: o3-mini
 
 system_prompt: |
   You are the Hypothesis Agent, responsible for generating testable predictions about patterns
@@ -391,79 +554,52 @@ system_prompt: |
 
 The system prompt focuses the agent on pattern recognition within the workspace content, encouraging structured analysis and specific, testable predictions. This approach implements the active inference aspect of the Free Energy Principle, where the agent attempts to reduce uncertainty by generating predictions that can be validated. The use of confidence and impact scores allows for prioritization of hypotheses, while the evidence and test criteria sections ensure that each hypothesis is both grounded in available data and verifiable through experimentation.
 
-### Implementation and workspace management
+### Implementation
 
-Unlike many specialists that use tools for their primary functionality, the HypothesisAgent directly manipulates the workspace content. This approach simplifies the implementation while ensuring that hypotheses become part of the shared cognitive context. The agent's workflow involves:
-
-1. Receiving a message with workspace content
-2. Analyzing the content to generate hypotheses
-3. Updating the workspace with structured hypotheses
+The HypothesisAgent's implementation is intentionally lightweight, focusing on processing the workspace content and generating structured hypotheses:
 
 ```python
-async def process(
+class HypothesisAgent(BaseAgent):
+  """Generates hypotheses informed by workspace state."""
+
+  async def process(
     self,
     message: Message,
-) -> AsyncIterator[Response]:
-    """Process with workspace-based hypothesis generation."""
-    # Get agency workspace path from message
-    agency_workspace = Path(
-        message.metadata[AGENCY_WORKSPACE_KEY]
-    )
+  ) -> AsyncIterator[Response]:
+    """Process with hypothesis generation."""
+    # Track accumulated content from streaming responses
+    accumulated_content: list[str] = []
 
-    # Load workspace content
-    workspace_content = (
-        self.workspace_manager.load_workspace(
-            agency_workspace
-        )
+    # Extract workspace content from message metadata
+    workspace_content = message.metadata.get(
+      "workspace_content", ""
     )
 
     # Generate hypotheses using LLM
     async for response in self._handle_conversation(
-        Message(
-            content=message.content,
-            metadata={
-                "workspace_content": workspace_content
-            },
-        )
+      Message(
+        content=message.content,
+        metadata={
+          "workspace_content": workspace_content
+        },
+      )
     ):
-        # ... handle response and update workspace ...
+      # Handle streaming and non-streaming responses
+      # ...
+
+      # Return response with proper metadata flags
+      yield Response(
+        content=response.content,
+        metadata={
+          "reasoning_stage": True,
+          "specialist_type": "hypothesis",
+        },
+      )
 ```
 
-The workspace update logic is particularly interesting, as it structures the hypotheses as a dedicated section in the workspace:
+This implementation highlights the agent's focused role: it receives workspace content, processes it using its specialized prompt, and returns structured hypotheses. The actual integration of these hypotheses into the workspace is handled by the Reasoning Coordinator, not the HypothesisAgent itself.
 
-```python
-async def _update_workspace_and_respond(
-    self,
-    workspace_content: str,
-    content: str,
-    agency_workspace: Path,
-) -> Response:
-    """Update workspace with new content and create response."""
-    # ... existing code ...
-
-    # Check if we already have a Hypothesis Generation Results section
-    if (
-        "# Hypothesis Generation Results"
-        not in updated_content
-    ):
-        # Add the hypothesis results section
-        updated_content += f"\n\n# Hypothesis Generation Results\n\n{content}"
-    else:
-        # Replace the existing hypothesis results section
-        sections = updated_content.split(
-            "# Hypothesis Generation Results"
-        )
-        updated_content = (
-            sections[0]
-            + "# Hypothesis Generation Results\n\n"
-            + content
-        )
-        # ... handle additional sections ...
-```
-
-This approach ensures that hypotheses are properly integrated into the workspace while preserving other important content, creating a seamless flow between reasoning stages.
-
-### Example
+### Example output
 
 When tasked with analyzing the factors affecting bread quality, the HypothesisAgent might generate output like this:
 
@@ -484,72 +620,253 @@ This structured output provides a clear, testable prediction that can be validat
 
 ## Inquiry design: Crafting actionable tests
 
-An effectively framed hypothesis means nothing if there is no plan to validate or refuse them. The inquiry specialist creates methods for measuring the validity of hypotheses that allow the engine to then take a path based on the result. This requires significant understanding of the action's effect and what to consider to measure its success. To this end, the InquiryAgent is carefully set up and designed by code as its core competency.
+Once hypotheses have been generated, the next step is to design tests that can validate or refute them. The `InquiryAgent`, defined in `winston/core/reasoning/inquiry.py`, transforms abstract hypotheses into concrete, actionable test plans. Like the HypothesisAgent, it implements a core aspect of the Free Energy Principle by designing empirical tests to reduce uncertainty through active inference.
 
-These design considerations take cues from what might inform a scientific process or experiment. What do scientists do when looking to conduct real studies? Their process almost always has involved, at a minimum, the following information:
+The InquiryAgent operates on the workspace content provided by the Coordinator, which includes the hypotheses generated in the previous stage. It analyzes these hypotheses and their test criteria, then designs specific, practical validation tests with clear success metrics and execution guidelines.
 
-- A clear, organized overview of the hypotheses and information
-- Clear, well-understood test design concepts
-- An ability to perform these processes successfully
+### System prompt
 
-That implies, if we can set up the right data and framework, that the system will need only simple instructions to come up with new plans- -- and not just come up with tests that will get more information as an ideal AI. The best and most critical pieces of context that allow the agent to make inferences about what to perform might include such information or context as:
+The InquiryAgent's cognitive behavior is guided by its system prompt, which uses the same specialized reasoning model (o3-mini) as the HypothesisAgent. The prompt establishes clear expectations for designing structured, practical tests that can validate the hypotheses:
 
-1. Hypothical goals, derived from the tests.
-2. Expected action results, which allow for a comparison and determination if the results went as expected.
-3. If not enough data to determine that, determine what must happen to get there.
-4. Which actions can perform the "test design" that provides information to assess and test against? This must include not just what is being tested but what should be tested if something goes sideways.
-5. Make recommendations on what action to perform next.
+```yaml
+id: inquiry_agent
+name: Inquiry Agent
+description: Designs and plans validation tests for hypotheses
+model: o3-mini
 
-While those are nice, it also has to keep a few "rules" in mind, to ensure that all of this operates cleanly given the current rules in Winston. We are still building the cognitive mind, as we have limited the actions an agent can perform. Our limitations on data access at the moment is one such major hurdle:
+system_prompt: |
+  You are the Inquiry Agent, responsible for designing practical tests to validate
+  hypotheses in Winston's enhanced reasoning system.
 
-- Only a single action run can demonstrate these steps.
-- We need the tests' metrics clear (for the ValidationAgent).
-- Given a single test with its requirements, there is only one option.
-- We do not have access to tools (like the AI Co-Scientist).
+  Current Workspace Content:
+  {{ workspace_content }}
 
-The next action is always "gather human feedback about if the test worked per the test conditions", and therefore, the entire Inquiry chain has a more limited set of actions that it considers. That can be seen in its model.
+  Your role is to:
+  1. Analyze the hypotheses and their test criteria
+  2. Design specific, practical validation tests
+  3. Define clear success metrics
+  4. Provide execution guidelines
 
-It works by generating these tests according to code set up in steps. First, it will look the most optimal path, and create a set of recommendations that build on what it said before. After it builds the test case and the steps and it gets data back, it provides a report on how successful those steps would be to provide.
-
-By setting up operations focused on an initial "plan to analyze" and then presenting that plan as a set of instructions, what we will observe is a plan with a wide variety to test and a high likelihood. Then, that action can get evaluated and used in further runs, building a reliable baseline. The focus on concrete is there to ensure only a structured recommendation is part of it, and that should follow along to help the user get the information they desire.
-
-Here is what the design looks like:
-
-```python
-system: AgentSystem
-config: AgentConfig
-  config = AgentConfig.from_yaml(
-    paths.system_agents_config
-    / "inquiry.yaml"
-  )
-
-async def process(
-    self,
-    message: Message,
-  ):
-    # get data for analysis
-    analysis =   await self.test.process(message):
-
-        self.data.useTestInfoWith(analysis, self.data.info_from(message))
-
-# then a step to decide what new test the system has a hypothesis
-        self.actions._assess(message)
-    # the report
-    await self.report_success()
+  For each test design, you must output in this format:
+  Test Design: [specific validation approach]
+  Priority: [0.0 to 1.0 score]
+  Complexity: [0.0 to 1.0 score]
+  Requirements:
+    - [resources/tools needed]
+    - [additional requirements]
+  Success Metrics:
+    - [specific measurable criteria]
+    - [additional metrics]
+  Execution Steps:
+    1. [detailed step]
+    2. [additional steps]
 ```
 
-Each model, after all, has to do more than just find or apply a fix -- as the system evaluates what comes back, and it has to have those goals available.
+This prompt focuses the agent on designing practical, executable tests with clear success metrics. The structured format ensures that each test design includes all the necessary information for implementation and evaluation, including priority and complexity scores for resource allocation, specific requirements, measurable success criteria, and detailed execution steps.
 
-In this way, it transforms and enables robust planning abilities by asking, for example, a question: What do you need to do to solve or fix X's issue? By asking this information, we can build insights for the long term to generate a set of actionables and recommendations, and make other inferences that may be useful. By creating an actionable pattern that the agent can leverage and review, that knowledge can be easily provided for new tests.
+### Implementation
 
-### Key takeaways
+Like the HypothesisAgent, the InquiryAgent's implementation is intentionally lightweight:
 
-Overall, to create actions, the agent will perform:
+```python
+class InquiryAgent(BaseAgent):
+  """Designs validation tests informed by workspace state."""
 
-- Focus on what you want the agent to do using a chain
-- In combination with actions that allow for a "test the framework and loop". By setting up action steps, setting up conditions the user will select, and making those a part of the plan, the system will have increased success.
-- This ensures the AI has a path for building success, and the user has a plan and set of actions that they must take each step of the way.
-- Through test and example, the user will be able to build that success -- an action that demonstrates a high standard and expectation for each step, and that can be delivered with a high degree of reliability compared to some theoretical solution.
+  async def process(
+    self,
+    message: Message,
+  ) -> AsyncIterator[Response]:
+    """Process with inquiry design."""
+    # Track accumulated content from streaming responses
+    accumulated_content: list[str] = []
+
+    # Extract workspace content from message metadata
+    workspace_content = message.metadata.get(
+      "workspace_content", ""
+    )
+
+    # Generate test designs using LLM
+    async for response in self._handle_conversation(
+      Message(
+        content=message.content,
+        metadata={
+          "workspace_content": workspace_content
+        },
+      )
+    ):
+      # Handle streaming and non-streaming responses
+      # ...
+
+      # Return response with proper metadata flags
+      yield Response(
+        content=response.content,
+        metadata={
+          "streaming": False,
+          "specialist_type": "inquiry",
+        },
+      )
+```
+
+This implementation highlights the agent's focused role: it receives workspace content containing hypotheses, processes it using its specialized prompt, and returns structured test designs. As with the HypothesisAgent, the actual integration of these test designs into the workspace is handled by the Reasoning Coordinator.
+
+### Example output
+
+For the bread flour hypothesis, the InquiryAgent might generate a test design like this:
+
+```markdown
+Test Design: Comparative bread rise experiment with different flour types
+Priority: 0.85
+Complexity: 0.4
+Requirements:
+
+- Bread flour (12-14% protein)
+- All-purpose flour (9-11% protein)
+- Identical bread recipe for both tests
+- Measuring tools (ruler, scale)
+- Controlled environment (temperature, humidity)
+  Success Metrics:
+- Measure final rise height in centimeters
+- Compare crumb structure density
+- Evaluate gluten network development
+  Execution Steps:
+
+1. Prepare two identical dough batches, one with bread flour and one with all-purpose
+2. Control all variables (water temperature, proofing time, etc.)
+3. Bake both loaves under identical conditions
+4. Measure rise height from base to highest point
+5. Cut cross-sections and photograph crumb structure
+6. Record and compare results
+```
+
+This structured output provides a clear, actionable test plan that can be executed to validate the hypothesis about bread flour's impact on rise. The test design includes all the necessary information for implementation and evaluation, ensuring that the results will be meaningful and comparable.
+
+## Validation: Evaluating outcomes and updating beliefs
+
+The final stage in the reasoning cycle is validation, where test results are evaluated against hypotheses to update beliefs and capture learnings. The `ValidationAgent`, defined in `winston/core/reasoning/validation.py`, serves as a cognitive auditor, meticulously examining test results and validating hypotheses. Like the other specialist agents, it implements a core aspect of the Free Energy Principle by evaluating empirical evidence to update beliefs through active inference.
+
+The ValidationAgent operates on the workspace content provided by the Coordinator, which includes the hypotheses from the first stage and the test designs and results from the second stage. It analyzes this information to evaluate the evidence, update confidence levels, identify needed refinements, and capture key learnings.
+
+### System prompt
+
+The ValidationAgent's cognitive behavior is guided by its system prompt, which uses the same specialized reasoning model (o3-mini) as the other specialist agents. The prompt establishes clear expectations for evaluating test results and validating hypotheses:
+
+```yaml
+id: validation_agent
+name: Validation Agent
+description: Evaluates test results and validates hypotheses
+model: o3-mini
+
+system_prompt: |
+  You are the Validation Agent, responsible for evaluating test results and validating
+  hypotheses in Winston's enhanced reasoning system.
+
+  Current Workspace Content:
+  {{ workspace_content }}
+
+  Your role is to:
+  1. Parse the workspace content to identify:
+     - Original hypotheses and their confidence levels
+     - Test designs and success criteria
+     - Test results and evidence
+  2. For each hypothesis:
+     - Analyze test results against predictions
+     - Evaluate evidence quality
+     - Update confidence levels
+     - Identify needed refinements
+
+  For each validation analysis, you must output in this format:
+  Hypothesis: [original hypothesis being validated]
+  Evidence Quality: [0.0 to 1.0 score]
+  Results Analysis:
+    - [key finding from test results]
+    - [additional findings]
+  Confidence Update:
+    - Original: [previous confidence score]
+    - New: [updated confidence score]
+    - Change: [+/- amount]
+  Refinements Needed:
+    - [specific improvement]
+    - [additional refinements]
+  Learning Capture:
+    - [key insight gained]
+    - [additional learnings]
+```
+
+This prompt focuses the agent on evaluating test results against hypotheses and updating beliefs based on evidence. The structured format ensures that each validation analysis includes all the necessary information for learning and refinement, including evidence quality assessment, results analysis, confidence updates, needed refinements, and key learnings.
+
+### Implementation
+
+Like the other specialist agents, the ValidationAgent's implementation is intentionally lightweight:
+
+```python
+class ValidationAgent(BaseAgent):
+  """Evaluates test results and validates hypotheses."""
+
+  async def process(
+    self,
+    message: Message,
+  ) -> AsyncIterator[Response]:
+    """Process with validation analysis."""
+    # Track accumulated content from streaming responses
+    accumulated_content: list[str] = []
+
+    # Extract workspace content from message metadata
+    workspace_content = message.metadata.get(
+      "workspace_content", ""
+    )
+
+    # Generate validation analysis using LLM
+    async for response in self._handle_conversation(
+      Message(
+        content=message.content,
+        metadata={
+          "workspace_content": workspace_content
+        },
+      )
+    ):
+      # Handle streaming and non-streaming responses
+      # ...
+
+      # Return response with proper metadata flags
+      yield Response(
+        content=response.content,
+        metadata={
+          "streaming": False,
+          "specialist_type": "validation",
+        },
+      )
+```
+
+This implementation highlights the agent's focused role: it receives workspace content containing hypotheses, test designs, and results, processes it using its specialized prompt, and returns structured validation analyses. As with the other specialist agents, the actual integration of these analyses into the workspace is handled by the Reasoning Coordinator.
+
+### Example output
+
+For the bread flour hypothesis and test results, the ValidationAgent might generate a validation analysis like this:
+
+```markdown
+Hypothesis: Bread flour increases rise due to higher protein content
+Evidence Quality: 0.92
+Results Analysis:
+
+- Bread flour loaf rose 23% higher than all-purpose flour loaf
+- Crumb structure showed 30% larger air pockets in bread flour loaf
+- Gluten network was visibly more developed in bread flour sample
+- All other variables were successfully controlled
+  Confidence Update:
+- Original: 0.9
+- New: 0.95
+- Change: +0.05
+  Refinements Needed:
+- Test with varying hydration levels to assess interaction effects
+- Examine protein quality (gluten types) not just quantity
+- Measure dough elasticity during mixing and proofing
+  Learning Capture:
+- Protein content directly correlates with rise height in a near-linear relationship
+- The effect is more pronounced in longer fermentation periods
+- Temperature sensitivity appears higher in bread flour dough
+```
+
+This structured output provides a clear evaluation of the test results against the original hypothesis, updating the confidence level based on evidence and identifying areas for refinement. The learning capture section ensures that key insights are preserved for future reasoning cycles, demonstrating the ValidationAgent's role in reducing uncertainty and guiding the learning process.
 
 OK. Here's the requested section, continuing the stylometry of Chapter 4 and focusing on a description of the ValidationAgent to build from a description about the HypothesisAgent in chapter 5 (which it will shortly succeed).:
 
@@ -667,3 +984,27 @@ The core idea will be:
 - In action/in example, there should be a good example by seeing that as a good sign to repeat, and as something to have in a test that is in this chain.
 
 This provides both validation of design as well as ensuring testable outcomes for long term use and engineering!
+
+## Conclusion: The Foundation for Advanced Reasoning
+
+In this chapter, we've introduced Winston's enhanced reasoning architecture, a sophisticated system that enables systematic problem-solving through the collaboration of specialized agents. At the core of this architecture is the Reasoning Coordinator, which plays an expanded and central role in orchestrating the entire reasoning process. The specialist agents—HypothesisAgent, InquiryAgent, and ValidationAgent—while relatively shallow at this stage, provide the essential cognitive functions for generating hypotheses, designing tests, and validating outcomes.
+
+The key components of this architecture include:
+
+1. **The Reasoning Coordinator**: The central orchestrator that manages workspace state, integrates with memory, dispatches to specialist agents, and ensures cognitive continuity across reasoning cycles. Its sophisticated workspace management capabilities enable it to maintain a coherent cognitive state throughout the reasoning process.
+
+2. **Specialist Agents**: Focused cognitive modules that perform specific tasks within the reasoning process:
+
+   - The HypothesisAgent generates structured, testable predictions with confidence levels and supporting evidence
+   - The InquiryAgent designs practical tests with clear success metrics and execution guidelines
+   - The ValidationAgent evaluates test results against hypotheses, updates confidence levels, and captures key learnings
+
+3. **Workspace Management**: A structured approach to state management that captures the problem statement, reasoning stage, background knowledge, and specialist results. This enables the re-entrant nature of the reasoning process, allowing the Coordinator to revisit earlier stages when necessary.
+
+4. **Memory Integration**: Before each specialist agent runs, the Coordinator queries memory for relevant context, and after each specialist completes, it stores learnings in memory. This integration enables Winston to learn from experience and apply past knowledge to new problems.
+
+This architecture is grounded in the Free Energy Principle, which posits that intelligent systems minimize uncertainty by refining their internal models to predict environmental states accurately. The reasoning cycle implements this principle through a systematic process of hypothesis generation, inquiry design, and validation, each stage working to reduce uncertainty and align predictions with reality.
+
+The current implementation represents a foundational step in Winston's cognitive evolution. While the specialist agents are intentionally shallow at this stage—consisting primarily of reasoning prompts that generate structured outputs—the architecture is designed to support more sophisticated reasoning capabilities in the future. The clear separation of concerns between the Coordinator and specialists allows for independent evolution of each component, enabling incremental improvements without disrupting the overall system.
+
+In the next chapter, we'll build on this foundation by introducing advanced tool use and code execution capabilities. These additions will enable Winston to interact with external systems, execute code, and perform actions in the world, further enhancing its problem-solving abilities. The reasoning architecture established in this chapter provides the essential cognitive framework for these advanced capabilities, ensuring that Winston can use tools and execute code in a purposeful, goal-directed manner guided by systematic reasoning.

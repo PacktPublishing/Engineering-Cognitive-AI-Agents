@@ -38,6 +38,41 @@ graph TD
     end
 ```
 
+System Prompt and Decision Making:
+The Reasoning Coordinator uses a specialized system prompt that:
+1. Establishes its role as the central decision-maker in the reasoning process
+2. Provides the current workspace content as context for decision-making
+3. Guides analysis through structured criteria:
+   - Context Continuity: Determining if a problem is new or continuing
+   - Stage Progression: Identifying the current reasoning stage and transition conditions
+   - Stage Requirements: Detailed criteria for each reasoning stage
+4. Requires decisions to be made through the handle_reasoning_decision tool with:
+   - requires_context_reset: Whether to start fresh with a new problem
+   - next_stage: The appropriate reasoning stage to execute next
+   - workspace_updates: Specific content changes needed in the workspace
+   - explanation: Clear rationale for the decision
+
+Workspace Template and Management:
+1. Custom Workspace Template:
+   - Provides a structured markdown format with predefined sections:
+     * Current Problem: The problem statement
+     * Reasoning Stage: The current stage in the reasoning process
+     * Background Knowledge: Relevant information from memory
+     * Learning Capture: Insights from memory relevant to the current stage
+     * Next Steps: Planned actions for problem resolution
+   - Initializes new workspaces with problem-specific content
+   - Maintains consistent structure across reasoning cycles
+
+2. Advanced Workspace Editing:
+   - Uses WorkspaceManager's sophisticated editing capabilities:
+     * Delta-based editing for precise, targeted updates
+     * Edit validation to ensure changes maintain workspace integrity
+     * Diff generation to track changes between versions
+     * Archiving of previous workspaces for reference
+   - Handles workspace transitions between reasoning stages
+   - Manages content organization to prevent duplication
+   - Preserves cognitive continuity across reasoning cycles
+
 Reasoning Stages:
 1. HYPOTHESIS_GENERATION
    - Analyzes the problem and generates potential solutions
@@ -59,29 +94,45 @@ Reasoning Stages:
    - PROBLEM_SOLVED: Indicates the problem has been successfully solved
    - PROBLEM_UNSOLVABLE: Indicates the problem cannot be solved with current constraints
 
-Memory Integration Flow:
+Specialist Agent Dispatching:
+The Reasoning Coordinator orchestrates specialist agents by:
+1. Determining the appropriate specialist based on the current reasoning stage
+2. Preparing the workspace context for the specialist:
+   - Loading the current workspace content
+   - Extracting the problem statement
+   - Determining the current reasoning stage
+   - Querying memory for relevant context
+   - Updating the workspace with memory-informed context
+3. Dispatching to the appropriate specialist agent:
+   - HypothesisAgent: Generates testable predictions with confidence levels
+   - InquiryAgent: Designs practical tests with clear success metrics
+   - ValidationAgent: Evaluates test results and updates hypothesis confidence
+4. Processing specialist responses:
+   - Extracting results from the specialist
+   - Updating the workspace with the specialist's output
+   - Organizing content to maintain workspace clarity
+   - Ensuring proper stage transitions in the workspace
+
+Memory Coordination (Query Mode):
 1. Before each specialist agent runs:
-   - Query memory for relevant context based on the current stage
-   - Extract problem statement, hypotheses, or inquiry results as needed
-   - Update workspace with retrieved memory context in the Learning Capture section
+   - Extracts the problem statement from the workspace
+   - Formulates a stage-specific memory query:
+     * For Hypothesis: Queries similar problems and domain knowledge
+     * For Inquiry: Queries test designs and validation approaches
+     * For Validation: Queries interpretation frameworks and conclusions
+   - Sets query_mode flag to prevent workspace modifications
+   - Sends the query to the Memory Coordinator
+   - Processes the memory response to extract relevant context
+   - Updates the workspace with retrieved memory context
 
 2. After each specialist agent completes:
-   - Extract specialist results from the workspace
-   - Store learnings in memory with appropriate metadata
-   - Associate learnings with the problem domain for future retrieval
-
-Workspace Management:
-1. Maintains a structured markdown workspace with sections for:
-   - Current Problem: The problem statement
-   - Reasoning Stage: The current stage in the reasoning process
-   - Background Knowledge: Relevant information from memory
-   - Learning Capture: Insights from memory relevant to the current stage
-   - Specialist Results: Outputs from hypothesis, inquiry, and validation agents
-
-2. Ensures proper stage transitions by:
-   - Updating the reasoning stage in the workspace
-   - Removing duplicate content to maintain clarity
-   - Preserving the logical flow of information
+   - Extracts specialist results from the workspace
+   - Formulates a stage-specific memory update:
+     * For Hypothesis: Stores generated hypotheses and confidence levels
+     * For Inquiry: Stores test designs and execution plans
+     * For Validation: Stores validation results and updated confidence
+   - Sends the update to the Memory Coordinator
+   - Associates learnings with the problem domain for future retrieval
 
 Implementation Details:
 - Uses a decision-based approach to determine the next reasoning stage
@@ -91,16 +142,16 @@ Implementation Details:
 - Handles workspace updates through delta-based editing for efficiency
 
 Example Reasoning Cycle:
-1. Initialize workspace with problem statement
-2. Query memory for relevant problem context
+1. Initialize workspace with problem statement using custom template
+2. Query memory for relevant problem context (query_mode)
 3. Generate hypotheses with memory-informed context
 4. Store hypothesis learnings in memory
 5. Transition to inquiry design stage
-6. Query memory for relevant test design context
+6. Query memory for relevant test design context (query_mode)
 7. Design tests with memory-informed context
 8. Store inquiry learnings in memory
 9. Transition to validation stage
-10. Query memory for relevant validation context
+10. Query memory for relevant validation context (query_mode)
 11. Validate results with memory-informed context
 12. Store validation learnings in memory
 13. Determine if problem is solved, needs more iterations, or requires user input
