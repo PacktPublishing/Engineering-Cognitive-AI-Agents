@@ -591,7 +591,7 @@ class HypothesisAgent(BaseAgent):
       yield Response(
         content=response.content,
         metadata={
-          "reasoning_stage": True,
+          "is_reasoning_stage": True,
           "specialist_type": "hypothesis",
         },
       )

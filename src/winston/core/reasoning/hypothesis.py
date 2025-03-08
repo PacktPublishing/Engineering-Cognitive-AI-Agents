@@ -1,36 +1,41 @@
-"""Hypothesis Agent: Specialist agent for solution generation and analysis.
+"""Hypothesis Agent: Generates testable predictions about patterns and relationships.
 
 The Hypothesis Agent is a key specialist in Winston's enhanced reasoning system,
-responsible for analyzing problems and generating potential solutions. It operates
-as part of a coordinated reasoning system alongside Inquiry and Validation agents.
+responsible for analyzing workspace content and generating testable hypotheses about
+patterns in observations and experiences. It operates as part of a coordinated
+reasoning system alongside Inquiry and Validation agents.
 
 Theoretical Foundation:
 The agent implements a core aspect of the Free Energy Principle (FEP) by generating
 testable predictions to reduce uncertainty. Through active inference, it:
 1. Identifies areas of uncertainty in current understanding
-2. Proposes specific, testable explanations
-3. Enables empirical validation through other specialists
-4. Supports learning from outcomes
+2. Proposes specific, testable hypotheses with confidence and impact ratings
+3. Provides evidence supporting each hypothesis
+4. Defines clear test criteria for validation
 
 Design Philosophy:
-The agent implements systematic problem analysis and solution generation by:
-1. Analyzing problem context and constraints from workspace content
-2. Drawing on relevant past experiences through memory integration
-3. Generating and prioritizing potential solutions
+The agent implements systematic pattern analysis and hypothesis generation by:
+1. Analyzing workspace content for relevant patterns and context
+2. Forming specific, testable hypotheses about the current problem
+3. Ranking hypotheses by potential impact and confidence
 4. Providing clear validation criteria for testing
+
+Output Format:
+Each hypothesis is structured with:
+- Hypothesis statement: A clear, testable prediction
+- Confidence score: Numerical rating from 0.0 to 1.0
+- Impact score: Potential significance rating from 0.0 to 1.0
+- Evidence: Supporting points from workspace content
+- Test Criteria: Specific tests to validate the hypothesis
 
 Implementation Note:
 The agent generates hypotheses in markdown format and returns the results
 to the coordinator, which manages the workspace state centrally."""
 
-from collections.abc import AsyncIterator
-
-from loguru import logger
+from typing import Any
 
 from winston.core.agent import (
   BaseAgent,
-  Message,
-  Response,
 )
 from winston.core.agent_config import AgentConfig
 from winston.core.paths import AgentPaths
@@ -38,7 +43,11 @@ from winston.core.protocols import System
 
 
 class HypothesisAgent(BaseAgent):
-  """Generates hypotheses informed by workspace state."""
+  """Generates testable predictions about patterns in observations and experiences.
+
+  Analyzes workspace content to form specific hypotheses with confidence ratings,
+  impact assessments, supporting evidence, and validation criteria.
+  """
 
   def __init__(
     self,
@@ -48,55 +57,15 @@ class HypothesisAgent(BaseAgent):
   ) -> None:
     super().__init__(system, config, paths)
 
-  async def process(
-    self,
-    message: Message,
-  ) -> AsyncIterator[Response]:
-    """Process with hypothesis generation."""
-    # Track accumulated content from streaming responses
-    accumulated_content: list[str] = []
+  def _get_response_metadata(self) -> dict[str, Any]:
+    """Get metadata for hypothesis responses.
 
-    # Extract workspace content from message metadata
-    workspace_content = message.metadata.get(
-      "workspace_content", ""
-    )
-
-    # Generate hypotheses using LLM
-    async for response in self._handle_conversation(
-      Message(
-        content=message.content,
-        metadata={
-          "workspace_content": workspace_content
-        },
-      )
-    ):
-      if response.metadata.get("streaming"):
-        accumulated_content.append(response.content)
-        yield response
-        continue
-
-      logger.debug("Processing non-streaming response")
-      logger.debug(
-        f"Response content: {response.content}"
-      )
-
-      # Return response with proper metadata flags
-      yield Response(
-        content=response.content,
-        metadata={
-          "reasoning_stage": True,
-          "specialist_type": "hypothesis",
-        },
-      )
-      return
-
-    # If we only got streaming responses, send a final non-streaming response
-    if accumulated_content:
-      final_content = "".join(accumulated_content)
-      yield Response(
-        content=final_content,
-        metadata={
-          "reasoning_stage": True,
-          "specialist_type": "hypothesis",
-        },
-      )
+    Returns
+    -------
+    dict[str, Any]
+        Metadata for hypothesis responses
+    """
+    return {
+      "is_reasoning_stage": True,
+      "specialist_type": "hypothesis",
+    }

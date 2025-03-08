@@ -315,11 +315,11 @@ class ReasoningCoordinator(BaseAgent):
 
         # Log the validation result
         logger.debug(
-          f"Edit validation result: {result["validation"]}"
+          f"Edit validation result: {result['validation']}"
         )
 
         # Log the diff for debugging
-        logger.debug(f"Edit diff:\n{result["diff"]}")
+        logger.debug(f"Edit diff:\n{result['diff']}")
 
       except Exception as e:
         # Fall back to direct save if edit_file fails
@@ -534,6 +534,8 @@ Solution Process: {workspace_content}""",
             "problem_type": "solved",
             "problem_domain": problem_statement,  # Add problem domain for better retrieval
           }),
+          # Set query_mode flag to prevent episode analysis
+          "query_mode": True,
         },
       )
     else:
@@ -558,6 +560,8 @@ Current State: {content_to_store}""",
             "problem_type": "in_progress",
             "problem_domain": problem_statement,  # Add problem domain for better retrieval
           }),
+          # Set query_mode flag to prevent episode analysis
+          "query_mode": True,
         },
       )
 

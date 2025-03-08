@@ -23,14 +23,10 @@ Implementation Note:
 The agent generates validation analyses in markdown format and returns the results
 to the coordinator, which manages the workspace state centrally."""
 
-from collections.abc import AsyncIterator
-
-from loguru import logger
+from typing import Any
 
 from winston.core.agent import (
   BaseAgent,
-  Message,
-  Response,
 )
 from winston.core.agent_config import AgentConfig
 from winston.core.paths import AgentPaths
@@ -48,55 +44,15 @@ class ValidationAgent(BaseAgent):
   ) -> None:
     super().__init__(system, config, paths)
 
-  async def process(
-    self,
-    message: Message,
-  ) -> AsyncIterator[Response]:
-    """Process with validation analysis."""
-    # Track accumulated content from streaming responses
-    accumulated_content: list[str] = []
+  def _get_response_metadata(self) -> dict[str, Any]:
+    """Get metadata for validation responses.
 
-    # Extract workspace content from message metadata
-    workspace_content = message.metadata.get(
-      "workspace_content", ""
-    )
-
-    # Generate validation analysis using LLM
-    async for response in self._handle_conversation(
-      Message(
-        content=message.content,
-        metadata={
-          "workspace_content": workspace_content
-        },
-      )
-    ):
-      if response.metadata.get("streaming"):
-        accumulated_content.append(response.content)
-        yield response
-        continue
-
-      logger.debug("Processing non-streaming response")
-      logger.debug(
-        f"Response content: {response.content}"
-      )
-
-      # Return response with proper metadata flags
-      yield Response(
-        content=response.content,
-        metadata={
-          "streaming": False,
-          "specialist_type": "validation",
-        },
-      )
-      return
-
-    # If we only got streaming responses, send a final non-streaming response
-    if accumulated_content:
-      final_content = "".join(accumulated_content)
-      yield Response(
-        content=final_content,
-        metadata={
-          "streaming": False,
-          "specialist_type": "validation",
-        },
-      )
+    Returns
+    -------
+    dict[str, Any]
+        Metadata for validation responses
+    """
+    return {
+      "is_reasoning_stage": True,
+      "specialist_type": "validation",
+    }

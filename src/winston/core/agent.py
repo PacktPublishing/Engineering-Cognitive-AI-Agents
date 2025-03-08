@@ -337,7 +337,6 @@ class BaseAgent(Agent):
   ) -> AsyncIterator[Response]:
     """Process streaming LLM response."""
     tool_calls: list[ChatCompletionDeltaToolCall] = []
-    accumulated_content: str = ""
 
     try:
       async for chunk in response:
@@ -450,9 +449,6 @@ class BaseAgent(Agent):
             hasattr(delta, "content")
             and delta["content"] is not None
           ):
-            accumulated_content += str(
-              delta["content"]
-            )
             yield Response(
               content=delta["content"],
               metadata={"streaming": True},
@@ -468,12 +464,6 @@ class BaseAgent(Agent):
               "streaming": True,
             },
           )
-
-      if accumulated_content:
-        logger.debug(
-          f"Accumulated content: {accumulated_content}"
-        )
-        self.state.last_response = accumulated_content
     except Exception as stream_error:
       logger.exception(
         f"Error in streaming response: {stream_error}"
@@ -831,11 +821,27 @@ class BaseAgent(Agent):
           )
           break
 
+  def _get_response_metadata(self) -> dict[str, Any]:
+    """Get metadata to be added to responses.
+
+    This method is intended to be overridden by subclasses to provide
+    specialized metadata for responses.
+
+    Returns
+    -------
+    dict[str, Any]
+        Metadata to be added to responses
+    """
+    return {}
+
   async def process(
     self,
     message: Message,
   ) -> AsyncIterator[Response]:
-    """Process messages to coordinate memory operations.
+    """Process messages through LLM conversation.
+
+    This method handles common operations like extracting workspace content,
+    calling _handle_conversation, and applying specialized metadata to responses.
 
     Parameters
     ----------
@@ -845,10 +851,34 @@ class BaseAgent(Agent):
     Yields
     ------
     Response
-        Responses from memory operations
+        Responses from the LLM conversation
     """
+    # Track accumulated content from streaming responses
+    accumulated_content: list[str] = []
+
     # Let the LLM evaluate the message using system prompt and tools
     async for response in self._handle_conversation(
       message
     ):
-      yield response
+      if response.metadata.get("streaming"):
+        accumulated_content.append(response.content)
+        yield response
+        continue
+
+      # For non-streaming responses, add specialized metadata
+      metadata = response.metadata.copy()
+      metadata.update(self._get_response_metadata())
+
+      yield Response(
+        content=response.content,
+        metadata=metadata,
+      )
+      return
+
+    # If we only got streaming responses, send a final non-streaming response
+    if accumulated_content:
+      final_content = "".join(accumulated_content)
+      yield Response(
+        content=final_content,
+        metadata=self._get_response_metadata(),
+      )

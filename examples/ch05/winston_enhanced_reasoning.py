@@ -1,4 +1,19 @@
-"""Winston with enhanced reasoning capabilities."""
+"""Winston with enhanced reasoning capabilities.
+
+This agent extends the base Winston agent with structured reasoning capabilities
+including hypothesis generation, investigation design, and validation. It processes
+messages through a reasoning coordinator that manages different reasoning stages
+and specialist agents. The agent maintains awareness of the reasoning flow,
+tracks different phases (specialists, memory updates), and generates appropriate
+responses based on the current reasoning stage.
+
+The agent has a distinctly British, intelligent, and slightly sardonic personality,
+and guides users through a systematic reasoning process that includes:
+- Pattern recognition in interactions
+- Clear hypothesis formation
+- Systematic investigation
+- Evidence-based conclusions
+"""
 
 from pathlib import Path
 from typing import AsyncIterator, cast
@@ -24,7 +39,13 @@ from winston.ui.chainlit_app import AgentChat
 
 
 class EnhancedReasoningWinston(BaseAgent):
-  """Winston with enhanced reasoning capabilities."""
+  """Winston agent with structured reasoning capabilities.
+
+  This agent processes messages through a reasoning coordinator that manages
+  different reasoning stages (hypothesis generation, inquiry design, validation)
+  and specialist agents. It tracks the reasoning flow, handles different phases,
+  and generates appropriate responses based on the current reasoning stage.
+  """
 
   async def process(
     self,
@@ -79,7 +100,7 @@ class EnhancedReasoningWinston(BaseAgent):
           continue
 
         # Handle reasoning flow
-        if response.metadata.get("reasoning_stage"):
+        if response.metadata.get("is_reasoning_stage"):
           # Show decision in reasoning step
           logger.trace(
             f"Reasoning decision: {response.content}",
@@ -171,7 +192,12 @@ class EnhancedReasoningWinston(BaseAgent):
 
 
 class EnhancedReasoningWinstonChat(AgentChat):
-  """Chat interface for memory-enabled Winston."""
+  """Chat interface for Winston with enhanced reasoning capabilities.
+
+  This class sets up the necessary components for the enhanced reasoning Winston,
+  including the memory coordinator and reasoning coordinator, and configures
+  the agent with the appropriate paths and configuration files.
+  """
 
   def __init__(self) -> None:
     # Set up paths with both application and system roots
