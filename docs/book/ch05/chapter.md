@@ -194,7 +194,7 @@ This pattern ensures that each specialist can focus on its specific cognitive ta
 
 ## Hypothesis generation: Formulating testable predictions
 
-Hypothesis generation provides the foundational step for exploring potential solutions to a problem. It functions as the initial phase where the system formulates conjectures based on available knowledge. The `HypothesisAgent`, defined in `winston/core/reasoning/hypothesis.py`, is a remarkably simple implementation that transforms open-ended problems into structured, testable predictions.
+Hypothesis generation provides the foundational step for exploring potential solutions to a problem. It functions as the initial phase where the system formulates testable predictions based on available knowledge. The `HypothesisAgent`, defined in `winston/core/reasoning/hypothesis.py`, is a remarkably simple implementation that transforms open-ended problems into structured, testable predictions.
 
 Unlike more complex agents, the `HypothesisAgent` is essentially a thin wrapper around a specialized prompt and the response metadata hook mechanism. The actual cognitive work is performed by the language model guided by the prompt, while the agent itself primarily handles message routing and metadata management. This design exemplifies our core philosophy: cognitive logic resides in the prompt, while the agent provides the structural framework.
 
