@@ -188,13 +188,17 @@ Given input, analyze:
 
 The implementation in `winston/core/reasoning/coordinator.py` is equally crucial. It supports the prompt's logic through several key mechanisms:
 
-1. **Decision-Based Routing:** The Coordinator uses a specialized tool (`handle_reasoning_decision`) to make structured decisions about the next reasoning stage, which are then used to route messages to the appropriate specialist agents.
+1. **Required Tool-Based Decision Making:** The Coordinator uses a specialized required tool (`handle_reasoning_decision`) for every message, forcing structured decisions about the next reasoning stage. This tool-based approach ensures consistent decision-making and provides clear explanations for stage transitions.
 
-2. **Memory Integration:** Before each specialist agent runs, the Coordinator queries memory for relevant context, and after each specialist completes, it stores learnings in memory.
+2. **Stage-Specific Memory Integration:** The Coordinator implements sophisticated memory integration tailored to each reasoning stage:
+   - Before Hypothesis Generation: Queries memory for similar problems and domain knowledge
+   - Before Inquiry Design: Queries memory for test design patterns and validation approaches
+   - Before Validation: Queries memory for interpretation frameworks and previous conclusions
+   - After each stage: Stores stage-specific learnings with appropriate semantic metadata
 
-3. **Workspace Management:** The Coordinator maintains a structured workspace that captures the entire reasoning process, using sophisticated editing techniques to update specific sections while preserving overall context.
+3. **Structured Workspace Management:** The Coordinator uses a predefined workspace template with sections for the problem statement, reasoning stage, background knowledge, learning capture, and next steps. It maintains this structure throughout the reasoning process using sophisticated editing techniques to update specific sections while preserving overall context.
 
-4. **Specialist Agent Orchestration:** The Coordinator prepares context for specialists, dispatches to the appropriate agent, and processes their responses to maintain cognitive continuity.
+4. **Contextual Specialist Agent Orchestration:** The Coordinator not only dispatches to specialist agents but enriches their context with memory-informed knowledge. It extracts relevant information from the workspace, queries memory for stage-appropriate context, updates the workspace with this context, and then dispatches to the specialist with this enriched context.
 
 The `process` method in `ReasoningCoordinator` demonstrates this orchestration:
 
@@ -513,13 +517,15 @@ This pattern ensures that each specialist can focus on its specific cognitive ta
 
 ## Hypothesis generation: Formulating testable predictions
 
-Hypothesis generation provides the foundational step for exploring potential solutions to a problem. It functions as the initial phase where the system formulates conjectures based on available knowledge. The `HypothesisAgent`, defined in `winston/core/reasoning/hypothesis.py`, transforms open-ended problems into structured, testable predictions. Implementing a core aspect of the Free Energy Principle, it reduces uncertainty by generating testable predictions through active inference, identifying areas of uncertainty, and proposing specific explanations that can be validated empirically.
+Hypothesis generation provides the foundational step for exploring potential solutions to a problem. It functions as the initial phase where the system formulates conjectures based on available knowledge. The `HypothesisAgent`, defined in `winston/core/reasoning/hypothesis.py`, is a remarkably simple implementation that transforms open-ended problems into structured, testable predictions.
+
+Unlike more complex agents, the `HypothesisAgent` is essentially a thin wrapper around a specialized prompt and the response metadata hook mechanism. The actual cognitive work is performed by the language model guided by the prompt, while the agent itself primarily handles message routing and metadata management. This design exemplifies our core philosophy: cognitive logic resides in the prompt, while the agent provides the structural framework.
 
 The `HypothesisAgent` primarily operates on workspace content rather than directly accessing memory systems, focusing on the immediate reasoning context provided by the workspace. It analyzes the current context, generates hypotheses, and returns structured, prioritized predictions that include confidence levels, impact ratings, supporting evidence, and clear test criteria.
 
 ### System prompt
 
-The HypothesisAgent's cognitive behavior is guided by its system prompt, which uses a specialized model trained for reasoning (o3-mini). The prompt establishes clear expectations for generating structured, testable hypotheses that can be validated through subsequent inquiry and testing.
+The HypothesisAgent's cognitive behavior is guided by its system prompt, which uses a specialized model trained for reasoning (o3-mini). The prompt establishes clear expectations for generating structured, testable hypotheses that can be validated through subsequent inquiry and testing. This prompt is where the actual "intelligence" of the agent resides.
 
 ```yaml
 id: hypothesis_agent
@@ -556,48 +562,80 @@ The system prompt focuses the agent on pattern recognition within the workspace 
 
 ### Implementation
 
-The HypothesisAgent's implementation is intentionally lightweight, focusing on processing the workspace content and generating structured hypotheses:
+The HypothesisAgent's implementation is intentionally minimal, focusing on processing the workspace content and generating structured hypotheses:
 
 ```python
 class HypothesisAgent(BaseAgent):
-  """Generates hypotheses informed by workspace state."""
+  """Generates testable predictions about patterns in observations and experiences.
 
-  async def process(
+  Analyzes workspace content to form specific hypotheses with confidence ratings,
+  impact assessments, supporting evidence, and validation criteria.
+  """
+
+  def __init__(
+    self,
+    system: System,
+    config: AgentConfig,
+    paths: AgentPaths,
+  ) -> None:
+    super().__init__(system, config, paths)
+
+  def _get_response_metadata(self) -> dict[str, Any]:
+    """Get metadata for hypothesis responses.
+
+    Returns
+    -------
+    dict[str, Any]
+        Metadata for hypothesis responses
+    """
+    return {
+      "is_reasoning_stage": True,
+      "specialist_type": "hypothesis",
+    }
+```
+
+This implementation is remarkably simple. The agent inherits the `process` method from `BaseAgent` without modification, relying entirely on the base implementation to handle the conversation with the language model. The only specialized functionality is the `_get_response_metadata` method, which adds specific metadata to the responses.
+
+This is our first encounter with the response metadata hook in the `BaseAgent` class. This hook is a key mechanism that allows specialized agents to communicate their role and purpose to the coordinator without requiring complex custom processing logic. The `BaseAgent.process` method handles the conversation with the language model and then calls `_get_response_metadata` to add specialized metadata to the responses before returning them.
+
+Here's how the response metadata hook works in the `BaseAgent` class:
+
+```python
+async def process(
     self,
     message: Message,
-  ) -> AsyncIterator[Response]:
-    """Process with hypothesis generation."""
+) -> AsyncIterator[Response]:
+    """Process messages through LLM conversation."""
     # Track accumulated content from streaming responses
     accumulated_content: list[str] = []
 
-    # Extract workspace content from message metadata
-    workspace_content = message.metadata.get(
-      "workspace_content", ""
-    )
+    # Let the LLM evaluate the message using system prompt and tools
+    async for response in self._handle_conversation(message):
+        if response.metadata.get("streaming"):
+            accumulated_content.append(response.content)
+            yield response
+            continue
 
-    # Generate hypotheses using LLM
-    async for response in self._handle_conversation(
-      Message(
-        content=message.content,
-        metadata={
-          "workspace_content": workspace_content
-        },
-      )
-    ):
-      # Handle streaming and non-streaming responses
-      # ...
+        # For non-streaming responses, add specialized metadata
+        metadata = response.metadata.copy()
+        metadata.update(self._get_response_metadata())
 
-      # Return response with proper metadata flags
-      yield Response(
-        content=response.content,
-        metadata={
-          "is_reasoning_stage": True,
-          "specialist_type": "hypothesis",
-        },
-      )
+        yield Response(
+            content=response.content,
+            metadata=metadata,
+        )
+        return
+
+    # If we only got streaming responses, send a final non-streaming response
+    if accumulated_content:
+        final_content = "".join(accumulated_content)
+        yield Response(
+            content=final_content,
+            metadata=self._get_response_metadata(),
+        )
 ```
 
-This implementation highlights the agent's focused role: it receives workspace content, processes it using its specialized prompt, and returns structured hypotheses. The actual integration of these hypotheses into the workspace is handled by the Reasoning Coordinator, not the HypothesisAgent itself.
+This design pattern allows specialized agents to focus solely on their unique contributions (in this case, adding hypothesis-specific metadata) while inheriting all the common functionality from the base class. The actual integration of the hypotheses into the workspace is handled by the Reasoning Coordinator, not the HypothesisAgent itself.
 
 ### Example output
 
@@ -666,48 +704,39 @@ This prompt focuses the agent on designing practical, executable tests with clea
 
 ### Implementation
 
-Like the HypothesisAgent, the InquiryAgent's implementation is intentionally lightweight:
+Like the HypothesisAgent, the InquiryAgent's implementation is intentionally minimal:
 
 ```python
 class InquiryAgent(BaseAgent):
   """Designs validation tests informed by workspace state."""
 
-  async def process(
+  def __init__(
     self,
-    message: Message,
-  ) -> AsyncIterator[Response]:
-    """Process with inquiry design."""
-    # Track accumulated content from streaming responses
-    accumulated_content: list[str] = []
+    system: System,
+    config: AgentConfig,
+    paths: AgentPaths,
+  ) -> None:
+    super().__init__(system, config, paths)
 
-    # Extract workspace content from message metadata
-    workspace_content = message.metadata.get(
-      "workspace_content", ""
-    )
+  def _get_response_metadata(self) -> dict[str, Any]:
+    """Get metadata for inquiry responses.
 
-    # Generate test designs using LLM
-    async for response in self._handle_conversation(
-      Message(
-        content=message.content,
-        metadata={
-          "workspace_content": workspace_content
-        },
-      )
-    ):
-      # Handle streaming and non-streaming responses
-      # ...
-
-      # Return response with proper metadata flags
-      yield Response(
-        content=response.content,
-        metadata={
-          "streaming": False,
-          "specialist_type": "inquiry",
-        },
-      )
+    Returns
+    -------
+    dict[str, Any]
+        Metadata for inquiry responses
+    """
+    return {
+      "is_reasoning_stage": True,
+      "specialist_type": "inquiry",
+    }
 ```
 
-This implementation highlights the agent's focused role: it receives workspace content containing hypotheses, processes it using its specialized prompt, and returns structured test designs. As with the HypothesisAgent, the actual integration of these test designs into the workspace is handled by the Reasoning Coordinator.
+This implementation follows the same pattern as the HypothesisAgent, demonstrating the consistency of our design approach. The agent inherits the `process` method from `BaseAgent` without modification, relying entirely on the base implementation to handle the conversation with the language model. The only specialized functionality is the `_get_response_metadata` method, which adds specific metadata to the responses.
+
+This design pattern continues to leverage the response metadata hook in the `BaseAgent` class, allowing the InquiryAgent to focus solely on its unique contribution (adding inquiry-specific metadata) while inheriting all the common functionality from the base class. The actual integration of the test designs into the workspace is handled by the Reasoning Coordinator, not the InquiryAgent itself.
+
+The simplicity of this implementation reinforces our core philosophy: cognitive logic resides in the prompt, while the agent provides the structural framework. The specialized prompt guides the language model to generate structured test designs, while the agent itself primarily handles message routing and metadata management.
 
 ### Example output
 
@@ -796,48 +825,37 @@ This prompt focuses the agent on evaluating test results against hypotheses and 
 
 ### Implementation
 
-Like the other specialist agents, the ValidationAgent's implementation is intentionally lightweight:
+The ValidationAgent completes the reasoning cycle with an implementation that follows the same minimal pattern as the other specialist agents:
 
 ```python
 class ValidationAgent(BaseAgent):
   """Evaluates test results and validates hypotheses."""
 
-  async def process(
+  def __init__(
     self,
-    message: Message,
-  ) -> AsyncIterator[Response]:
-    """Process with validation analysis."""
-    # Track accumulated content from streaming responses
-    accumulated_content: list[str] = []
+    system: System,
+    config: AgentConfig,
+    paths: AgentPaths,
+  ) -> None:
+    super().__init__(system, config, paths)
 
-    # Extract workspace content from message metadata
-    workspace_content = message.metadata.get(
-      "workspace_content", ""
-    )
+  def _get_response_metadata(self) -> dict[str, Any]:
+    """Get metadata for validation responses.
 
-    # Generate validation analysis using LLM
-    async for response in self._handle_conversation(
-      Message(
-        content=message.content,
-        metadata={
-          "workspace_content": workspace_content
-        },
-      )
-    ):
-      # Handle streaming and non-streaming responses
-      # ...
-
-      # Return response with proper metadata flags
-      yield Response(
-        content=response.content,
-        metadata={
-          "streaming": False,
-          "specialist_type": "validation",
-        },
-      )
+    Returns
+    -------
+    dict[str, Any]
+        Metadata for validation responses
+    """
+    return {
+      "is_reasoning_stage": True,
+      "specialist_type": "validation",
+    }
 ```
 
-This implementation highlights the agent's focused role: it receives workspace content containing hypotheses, test designs, and results, processes it using its specialized prompt, and returns structured validation analyses. As with the other specialist agents, the actual integration of these analyses into the workspace is handled by the Reasoning Coordinator.
+This implementation completes the reasoning cycle by providing the critical validation component. The ValidationAgent serves as the cognitive auditor of the reasoning process, examining test results against hypotheses to update beliefs and capture learnings. It represents the culmination of the scientific method within Winston's reasoning architecture, where empirical evidence is used to refine understanding.
+
+The agent's role is particularly important in the context of the Free Energy Principle, as it's responsible for the final step in reducing uncertainty: evaluating whether the predictions (hypotheses) match reality (test results) and updating the internal model accordingly. This evaluation process is what allows Winston to learn from experience and improve its predictive accuracy over time.
 
 ### Example output
 
