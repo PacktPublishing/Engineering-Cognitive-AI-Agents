@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant RC as ReasoningCoordinator
+    participant SA as Specialist Agent
+    participant BA as BaseAgent
+    participant RM as Reasoning Model (LLM)
+
+    RC->>SA: Send message with workspace content
+    SA->>BA: Process message (inherited method)
+    BA->>RM: Send formatted prompt with workspace
+    RM-->>BA: Generate reasoning-based output
+    BA->>SA: Call _get_response_metadata()
+    SA-->>BA: Return specialist-specific metadata
+    BA->>RC: Return enhanced response

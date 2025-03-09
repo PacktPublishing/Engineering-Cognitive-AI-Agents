@@ -2,7 +2,7 @@
 
 Chapter 4 provided Winston with a robust memory system for storing and retrieving information. However, cognitive systems require more than just memory; they need to reason about problems and find solutions. This chapter enhances the basic reasoning capabilities established in Chapter 3 with a full-blown reasoning agency, featuring a coordinator and specialist agents.
 
-We introduce Winston’s core reasoning architecture, where Winston gains essential problem-solving capabilities: formulating hypotheses, designing tests, evaluating results, and refining approaches based on feedback. While later chapters will expand these abilities to include action, planning, adaptation, and meta-cognitive awareness, this foundation sets the stage for all complex reasoning operations within Winston’s evolving system.
+We introduce Winston’s core reasoning architecture, where Winston gains the essential problem-solving capabilities of formulating hypotheses, designing tests, evaluating results, and refining approaches based on feedback. While later chapters will expand these abilities to include action, planning, adaptation, and meta-cognitive awareness, this foundation sets the stage for all complex reasoning operations within Winston’s evolving system.
 
 The chapter begins with an introduction to reasoning in cognitive architectures, establishing the theoretical foundation before presenting Winston's reasoning agency components. We then explore the `ReasoningCoordinator`, the agent responsible for managing the entire reasoning process, followed by each specialist component: the `HypothesisAgent` for formulating testable predictions, the `InquiryAgent` for crafting validation strategies, and the `ValidationAgent` for assessing outcomes. Each component follows our specialized agent approach: agents working together to produce non-trivial reasoning capabilities.
 
@@ -194,21 +194,8 @@ While the `ReasoningCoordinator` orchestrates the overall reasoning process, the
 
 The specialist agents share a minimal implementation pattern:
 
-```mermaid
-sequenceDiagram
-    participant RC as ReasoningCoordinator
-    participant SA as Specialist Agent
-    participant BA as BaseAgent
-    participant RM as Reasoning Model (LLM)
-
-    RC->>SA: Send message with workspace content
-    SA->>BA: Process message (inherited method)
-    BA->>RM: Send formatted prompt with workspace
-    RM-->>BA: Generate reasoning-based output
-    BA->>SA: Call _get_response_metadata()
-    SA-->>BA: Return specialist-specific metadata
-    BA->>RC: Return enhanced response
-```
+![Figure 5.6: Specialist agent implementation pattern](./assets/figure_05_06.svg)
+_Figure 5.6: Specialist agent implementation pattern_
 
 This elegant simplicity is evident in the implementation. For example, the entire `HypothesisAgent` class requires just a handful of lines beyond its constructor:
 
@@ -738,15 +725,15 @@ This implementation demonstrates how the various components of Winston's reasoni
 
 To demonstrate Winston's enhanced reasoning capabilities, try the giving Winston the problem we've been using as the running example throughout this chapter: "How does the type of flour affect bread texture and rise?". Note the processing steps reflect the sequence we've described above:
 
-![Figure 5.6: Winston's hypothesis processing](./assets/figure_05_06.png)
-_Figure 5.6: Winston's hypothesis processing_
+![Figure 5.7: Winston's hypothesis processing](./assets/figure_05_07.png)
+_Figure 5.7: Winston's hypothesis processing_
 
 Winston recognizes this as a new problem and initiates the reasoning process. The `ReasoningCoordinator` resets the workspace, queries memory for relevant context, and dispatches to the Hypothesis Agent.
 
 Winston presents these hypotheses to the you, explaining the confidence and impact ratings and asking for feedback before proceeding to test design.
 
-![Figure 5.7: Winston's hypothesis presentation](./assets/figure_05_07.png)
-_Figure 5.7: Winston's hypothesis presentation_
+![Figure 5.8: Winston's hypothesis presentation](./assets/figure_05_08.png)
+_Figure 5.8: Winston's hypothesis presentation_
 
 You can confirm the hypotheses are reasonable, and Winston proceeds to the inquiry design stage. Alternatively, you can provide correction or feedback and Winston will adjust the hypotheses accordingly.
 
@@ -756,8 +743,8 @@ You can conduct the experiments (or cheat by using your favorite LLM to simulate
 
 Finally, Winston will present the validation results to you, explaining how the evidence supports (or refutes) the hypothesis about bread flour's impact on rise and discussing the updated confidence levels. The reasoning process concludes with Winston summarizing the key insights gained and suggesting areas for further exploration.
 
-![Figure 5.8: Winston's final assessment](./assets/figure_05_08.png)
-_Figure 5.8: Winston's final assessment_
+![Figure 5.9: Winston's final assessment](./assets/figure_05_09.png)
+_Figure 5.9: Winston's final assessment_
 
 This example demonstrates how Winston's reasoning system enables systematic problem-solving through the collaboration of specialized agents. The chat agent provides a natural interface to this complex system, guiding the user through the reasoning process while maintaining an engaging personality.
 
