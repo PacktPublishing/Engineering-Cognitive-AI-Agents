@@ -157,7 +157,7 @@ huggingface-hub==0.29.2
     # via transformers
 humanfriendly==10.0
     # via coloredlogs
-identify==2.6.8
+identify==2.6.9
     # via pre-commit
 idna==3.10
     # via anyio
@@ -173,7 +173,7 @@ importlib-resources==6.5.2
 iniconfig==2.0.0
     # via pytest
 ipykernel==6.29.5
-ipython==9.0.1
+ipython==9.0.2
     # via ipykernel
 ipython-pygments-lexers==1.1.1
     # via ipython
@@ -267,7 +267,7 @@ oauthlib==3.2.2
     # via requests-oauthlib
 onnxruntime==1.21.0
     # via chromadb
-openai==1.65.4
+openai==1.65.5
     # via ecaa
     # via litellm
 opentelemetry-api==1.29.0
@@ -465,7 +465,7 @@ scipy==1.15.2
     # via sentence-transformers
 sentence-transformers==3.4.1
     # via ecaa
-setuptools==75.8.2
+setuptools==76.0.0
     # via torch
 sgmllib3k==1.0.0
     # via feedparser

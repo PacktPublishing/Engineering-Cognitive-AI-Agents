@@ -232,7 +232,7 @@ oauthlib==3.2.2
     # via requests-oauthlib
 onnxruntime==1.21.0
     # via chromadb
-openai==1.65.4
+openai==1.65.5
     # via ecaa
     # via litellm
 opentelemetry-api==1.29.0
@@ -404,7 +404,7 @@ scipy==1.15.2
     # via sentence-transformers
 sentence-transformers==3.4.1
     # via ecaa
-setuptools==75.8.2
+setuptools==76.0.0
     # via torch
 sgmllib3k==1.0.0
     # via feedparser

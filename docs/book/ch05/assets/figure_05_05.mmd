@@ -1,0 +1,36 @@
+sequenceDiagram
+    participant User
+    participant RC as Reasoning Coordinator
+    participant MC as Memory Coordinator
+    participant Specialist
+    participant WS as Workspace
+
+    User->>RC: Problem Statement
+    RC->>WS: Initialize Workspace
+
+    loop For each reasoning stage (Hypothesis, Inquiry, Validation)
+        RC->>MC: Query for Stage Context
+        MC-->>RC: Relevant Knowledge/Methods
+        RC->>WS: Update with Context
+
+        RC->>Specialist: Run Stage Process
+        Specialist->>WS: Read Workspace
+        Specialist-->>RC: Stage Results
+
+        RC->>WS: Update with Results
+        RC->>MC: Store Stage Learnings
+        RC-->>User: Return Stage Results
+
+        alt Not Final Stage
+            User->>RC: Continue to Next Stage
+        end
+    end
+
+    alt Problem Solved
+        User->>RC: Confirm Solution
+        RC->>MC: Store Complete Solution
+    else Needs More Investigation
+        User->>RC: Request Next Reasoning Cycle
+    else Needs Additional Information
+        User->>RC: Provide More Information
+    end

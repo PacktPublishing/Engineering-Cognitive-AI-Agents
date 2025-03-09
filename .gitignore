@@ -193,6 +193,5 @@ combined_*.md
 *.docx
 *:Zone.Identifier
 examples/**/workspaces/
-public/
 **/artifacts/
 logs/

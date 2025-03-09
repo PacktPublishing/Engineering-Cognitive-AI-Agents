@@ -6,35 +6,64 @@ at each stage of reasoning to enhance problem-solving capabilities and build a g
 
 Architecture Overview:
 ```mermaid
-graph TD
-    RC[Reasoning Coordinator] -->|State Management| WS[Workspace]
-    MC[Memory Coordinator] <-->|Knowledge Exchange| RC
-    RC -->|Query Context| MC
-    RC -->|Store Learnings| MC
+sequenceDiagram
+    participant User
+    participant RC as Reasoning Coordinator
+    participant MC as Memory Coordinator
+    participant HA as Hypothesis Agent
+    participant IA as Inquiry Agent
+    participant VA as Validation Agent
+    participant WS as Workspace
 
-    subgraph "Reasoning Stages"
-        RC -->|Stage 1| HA[Hypothesis Agent]
-        HA -->|Results| RC
-        RC -->|Stage 2| IA[Inquiry Agent]
-        IA -->|Results| RC
-        RC -->|Stage 3| VA[Validation Agent]
-        VA -->|Results| RC
-    end
+    User->>RC: Problem Statement
+    RC->>WS: Initialize Workspace
 
-    subgraph "Memory Integration"
-        RC -->|Before Hypothesis| QH[Query Memory]
-        QH -->|Problem Context| HA
-        RC -->|Before Inquiry| QI[Query Memory]
-        QI -->|Hypothesis Context| IA
-        RC -->|Before Validation| QV[Query Memory]
-        QV -->|Inquiry Context| VA
-    end
+    %% Hypothesis Generation Stage
+    RC->>MC: Query for Problem Context
+    MC-->>RC: Relevant Knowledge
+    RC->>WS: Update with Context
+    RC->>HA: Run Hypothesis Generation
+    HA->>WS: Read Workspace
+    HA-->>RC: Hypotheses
+    RC->>WS: Update with Hypotheses
+    RC->>MC: Store Hypothesis Learnings
+    RC-->>User: Return Hypothesis Results
 
-    subgraph "Learning Capture"
-        HA -->|Hypothesis Learnings| LC[Learning Capture]
-        IA -->|Inquiry Learnings| LC
-        VA -->|Validation Learnings| LC
-        LC -->|Store| MC
+    %% User reviews and continues to Inquiry Design
+    User->>RC: Continue to Inquiry Design
+
+    %% Inquiry Design Stage
+    RC->>MC: Query for Hypothesis Context
+    MC-->>RC: Relevant Test Methods
+    RC->>WS: Update with Context
+    RC->>IA: Run Inquiry Design
+    IA->>WS: Read Workspace
+    IA-->>RC: Inquiry Plans
+    RC->>WS: Update with Inquiry Plans
+    RC->>MC: Store Inquiry Learnings
+    RC-->>User: Return Inquiry Results
+
+    %% User reviews and continues to Validation
+    User->>RC: Continue to Validation
+
+    %% Validation Stage
+    RC->>MC: Query for Inquiry Context
+    MC-->>RC: Relevant Validation Methods
+    RC->>WS: Update with Context
+    RC->>VA: Run Validation
+    VA->>WS: Read Workspace
+    VA-->>RC: Validation Results
+    RC->>WS: Update with Results
+    RC->>MC: Store Validation Learnings
+    RC-->>User: Return Validation Results
+
+    alt Problem Solved
+        User->>RC: Confirm Solution
+        RC->>MC: Store Complete Solution
+    else Needs More Investigation
+        User->>RC: Request Next Reasoning Cycle
+    else Needs Additional Information
+        User->>RC: Provide More Information
     end
 ```
 
