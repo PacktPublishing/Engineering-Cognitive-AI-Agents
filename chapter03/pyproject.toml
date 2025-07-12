@@ -1,0 +1,17 @@
+[project]
+name = "chapter03"
+version = "0.1.0"
+dependencies = [
+    "click>=8.2.1",
+    "common", # Depends on shared code
+]
+
+[tool.uv.sources]
+common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chapter03"]

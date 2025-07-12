@@ -1,0 +1,19 @@
+[project]
+name = "ecaa-book-root"
+version = "0.1.0"
+requires-python = ">=3.13"
+[tool.uv.workspace]
+members = [
+    # tools
+    "mdocx",
+    "chroma-repl",
+    # project
+    "common",
+    "chapter01",
+    "chapter02",
+    "chapter03",
+    # Add more chapters as needed
+]
+
+[tool.uv.sources]
+common = { workspace = true }

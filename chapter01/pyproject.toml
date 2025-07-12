@@ -1,0 +1,10 @@
+[project]
+name = "chapter01"
+version = "0.1.0"
+dependencies = [
+    "common",  # Depends on shared code
+    # Chapter-specific dependencies can be listed here
+]
+
+[tool.uv.sources]
+common = { workspace = true }
