@@ -14,13 +14,9 @@ from typing import Any, cast
 from openai import OpenAI
 from loguru import logger
 from jinja2 import Environment, FileSystemLoader
-from common import get_chapter_path, setup_logging
-from common.config import OPENAI_API_KEY, OPENAI_MODEL
-from common import (
-    initialize_intent_database,
-    index_tool,
-    query_tools_by_intent,
-)
+from common.config import initialize_config, setup_logging, OPENAI_API_KEY, OPENAI_MODEL, config
+from common import initialize_intent_database
+from common.intent_database import index_tool, query_tools_by_intent
 from .tool_registry import execute_tool_function
 from .mock_tools import TOOL_SCHEMAS
 
@@ -321,8 +317,12 @@ def _setup_environment() -> None:
 
     This must be called before any other Winston operations that use logging.
     """
-    # Configure logging
-    log_file = get_chapter_path("chapter02", "logs", create=True) / "winston.log"
+    # Initialize configuration first and update global config reference
+    global config
+    config = initialize_config("chapter02")
+
+    # Configure logging using centralized config
+    log_file = config.get_chapter_path("logs", create=True) / "winston.log"
     setup_logging(log_file=str(log_file))
 
 
@@ -337,7 +337,8 @@ def main() -> None:
     print("Initializing intent database...")
 
     # Setup intent database once at startup
-    persist_dir = str(get_chapter_path("chapter02", "chroma_db", create=True))
+    # Use the global config object that was initialized in _setup_environment
+    persist_dir = str(config.get_chapter_path("chroma_db", create=True))
     collection = initialize_intent_database(persist_dir)
     setup_demo_tools(collection)
 

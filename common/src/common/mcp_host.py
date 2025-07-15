@@ -16,6 +16,8 @@ from mcp import ClientSession, StdioServerParameters, Tool
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
+from .config import Config, substitute_config_variables
+
 
 class MCPHost:
     """Manages a collection of MCP servers defined in a configuration file.
@@ -24,6 +26,10 @@ class MCPHost:
     ----------
     config_path : Path
         The path to the MCP configuration JSON file.
+    config_obj : Config, optional
+        Configuration object for variable substitution. If provided,
+        variables in the config file will be substituted with values
+        from this object.
 
     Attributes
     ----------
@@ -33,9 +39,10 @@ class MCPHost:
         A dictionary mapping server names to their client session instances.
     """
 
-    def __init__(self, config_path: Path):
+    def __init__(self, config_path: Path, config_obj: Config | None = None):
         """Initialize the MCPHost with a given configuration."""
         self.config_path = config_path
+        self.config_obj = config_obj
         self.config: dict[str, Any] = {}
         self.sessions: dict[str, ClientSession] = {}
         self._exit_stack = AsyncExitStack()
@@ -45,10 +52,18 @@ class MCPHost:
         logger.info(f"Starting MCP Host from config: {self.config_path}")
         try:
             with self.config_path.open("r", encoding="utf-8") as f:
-                self.config = json.load(f)
+                raw_config = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError) as e:
             logger.error(f"Failed to load or parse MCP config: {e}")
             raise
+
+        # Perform variable substitution if config object is provided
+        if self.config_obj is not None:
+            logger.debug("Performing variable substitution on MCP configuration")
+            self.config = substitute_config_variables(raw_config, self.config_obj)
+            logger.debug("Variable substitution completed")
+        else:
+            self.config = raw_config
 
         servers_map = self.config.get("mcpServers", {})
         for name, config in servers_map.items():

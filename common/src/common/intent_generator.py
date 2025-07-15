@@ -248,35 +248,22 @@ class IntentGenerator:
                     logger.error(f"Failed to retrieve existing document with ID: {existing_id}")
                     continue
 
-                existing_tools_str = metadatas[0].get("tools", "[]")
-                try:
-                    # Ensure we're parsing a string
-                    if isinstance(existing_tools_str, str):
-                        existing_tools = json.loads(existing_tools_str)
-                    else:
-                        logger.warning(f"Tools metadata is not a string: {type(existing_tools_str)}")
-                        existing_tools = []
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse tools JSON for document: {existing_id}")
-                    existing_tools = []
+                # Backward compatibility: handle both old and new formats
+                existing_tools_data = self._parse_tools_metadata(dict(metadatas[0]))
 
-                # Add the new tool URI if it's not already in the list
-                if tool_uri not in existing_tools:
-                    existing_tools.append(tool_uri)
+                # Create new tool entry
+                new_tool_entry = {"uri": tool_uri, "schema": tool.inputSchema}
 
-                # Prepare metadata update - always include tools, and add schema if missing
-                metadata_update = {"tools": json.dumps(existing_tools)}
+                # Check if this tool is already present (by URI)
+                tool_exists = any(entry["uri"] == tool_uri for entry in existing_tools_data)
+                if not tool_exists:
+                    existing_tools_data.append(new_tool_entry)
 
-                # Check if schema is missing and add it from current tool
-                existing_schema = metadatas[0].get("schema")
-                if not existing_schema:
-                    metadata_update["schema"] = json.dumps(tool.inputSchema)
-
-                # Update the document with the merged tools list and schema
+                # Update the document with the merged tools list
                 update_document(
                     collection,
                     existing_id,
-                    metadata_update
+                    {"tools": json.dumps(existing_tools_data)}
                 )
 
                 # Use the existing intent text for L2 generation
@@ -291,6 +278,10 @@ class IntentGenerator:
                 # INSERT: Create a new L1 intent document
                 logger.debug(f"Creating new L1 intent for tool: {tool.name}")
                 doc_id = f"intent::L1::{server_name}::{tool.name}"
+
+                # Create tool entry with URI and schema
+                tool_entry = {"uri": tool_uri, "schema": tool.inputSchema}
+
                 index_item(
                     collection,
                     {
@@ -298,8 +289,7 @@ class IntentGenerator:
                         "text": intent_text,
                         "metadata": {
                             "type": "L1",
-                            "tools": json.dumps([tool_uri]),
-                            "schema": json.dumps(tool.inputSchema),
+                            "tools": json.dumps([tool_entry]),
                         },
                     }
                 )
@@ -307,6 +297,64 @@ class IntentGenerator:
 
         logger.info(f"Generated {len(server_l1_intents)} L1 intents for server: {server_name}")
         return server_l1_intents
+
+    def _parse_tools_metadata(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
+        """Parse tools metadata handling both old and new formats.
+
+        Backward compatibility method that migrates old format to new format.
+
+        Parameters
+        ----------
+        metadata : dict[str, Any]
+            The metadata dictionary from ChromaDB.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of tool entries with 'uri' and 'schema' keys.
+        """
+        existing_tools_str = metadata.get("tools", "[]")
+
+        try:
+            if isinstance(existing_tools_str, str):
+                existing_tools = json.loads(existing_tools_str)
+            else:
+                logger.warning(f"Tools metadata is not a string: {type(existing_tools_str)}")
+                existing_tools = []
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse tools JSON from metadata")
+            existing_tools = []
+
+        # Handle backward compatibility
+        if existing_tools and isinstance(existing_tools[0], str):
+            # Old format: list of URI strings with separate schema field
+            logger.info("Migrating tools metadata from old format to new format")
+            legacy_schema = metadata.get("schema")
+
+            if legacy_schema:
+                try:
+                    if isinstance(legacy_schema, str):
+                        schema_obj = json.loads(legacy_schema)
+                    else:
+                        schema_obj = legacy_schema
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning("Failed to parse legacy schema, using empty schema")
+                    schema_obj = {}
+            else:
+                schema_obj = {}
+
+            # Convert to new format
+            migrated_tools = []
+            for uri in existing_tools:
+                migrated_tools.append({"uri": uri, "schema": schema_obj})
+
+            return migrated_tools
+        elif existing_tools and isinstance(existing_tools[0], dict):
+            # New format: list of tool entry objects
+            return existing_tools
+        else:
+            # Empty or invalid data
+            return []
 
     async def _process_server_l2_intents(
         self, collection: Collection, server_name: str, l1_intent_texts: list[str]

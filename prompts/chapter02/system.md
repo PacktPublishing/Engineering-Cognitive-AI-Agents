@@ -22,11 +22,12 @@ Your purpose is to accomplish tasks using only three functions:
 {% if action_trace %}
 Previous actions taken:
 {% for action in action_trace %}
+
 - {{ action.timestamp }}: {{ action.action }} ({{ action.reasoning }}) → {{ action.result }}
-{% endfor %}
-{% else %}
-No previous actions taken.
-{% endif %}
+  {% endfor %}
+  {% else %}
+  No previous actions taken.
+  {% endif %}
 
 ## Instructions
 

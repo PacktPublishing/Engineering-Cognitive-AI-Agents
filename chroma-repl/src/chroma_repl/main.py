@@ -18,6 +18,7 @@ from rich.table import Table
 
 from common.config import INTENT_COLLECTION_NAME, INTENT_DB_PERSIST_DIR
 from common.intent_database import (
+    get_full_item_by_id,
     initialize_intent_database,
     query_by_intent,
 )
@@ -191,13 +192,13 @@ class ChromaREPL:
             table = Table(title=f"Query Results for: '{intent}'")
             table.add_column("Rank", justify="right", style="cyan", width=4)
             table.add_column("Type", style="green", width=8)
-            table.add_column("ID", style="blue", width=20)
+            table.add_column("ID", style="blue", no_wrap=True)
             table.add_column("Similarity", justify="right", style="yellow", width=10)
             table.add_column("Document", style="white")
 
             for i, result in enumerate(results, 1):
                 item_type = result.get("type", "unknown")
-                item_id = result.get("tool_name", result.get("id", "unknown"))
+                doc_id = result.get("id", "unknown")
                 similarity = f"{result.get('similarity', 0):.3f}"
                 document = result.get("document", "")
 
@@ -205,7 +206,7 @@ class ChromaREPL:
                 if len(document) > 80:
                     document = document[:77] + "..."
 
-                table.add_row(str(i), item_type, item_id, similarity, document)
+                table.add_row(str(i), item_type, doc_id, similarity, document)
 
             self.console.print(table)
 
@@ -297,6 +298,35 @@ class ChromaREPL:
             logger.error(f"Failed to export data: {e}")
             self.console.print(f"[red]Error exporting data: {e}[/red]")
 
+    @logger.catch
+    def show_document(self, doc_id: str) -> None:
+        """Display the full document entry for a given document ID.
+
+        Parameters
+        ----------
+        doc_id : str
+            The document ID to retrieve and display.
+        """
+        if not self.collection:
+            self.console.print("[red]No database connected[/red]")
+            return
+
+        try:
+            item = get_full_item_by_id(self.collection, doc_id)
+
+            if item is None:
+                self.console.print(f"[yellow]Document not found: '{doc_id}'[/yellow]")
+                return
+
+            # Display as formatted JSON
+            formatted_json = json.dumps(item, indent=2, ensure_ascii=False)
+            self.console.print(f"\n[bold cyan]Document: {doc_id}[/bold cyan]")
+            self.console.print(formatted_json)
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve document: {e}")
+            self.console.print(f"[red]Error retrieving document: {e}[/red]")
+
     def show_help(self) -> None:
         """Display available commands and their usage."""
         help_text = """
@@ -309,6 +339,7 @@ class ChromaREPL:
 
 [yellow]Query Operations:[/yellow]
   query <intent> [n]     - Query for items matching intent (default n=5)
+  show <doc_id>          - Display full document entry as formatted JSON
   export <path> [type]   - Export data to JSON file (optionally filtered by type)
 
 [yellow]Utility Commands:[/yellow]
@@ -317,6 +348,7 @@ class ChromaREPL:
 
 [yellow]Examples:[/yellow]
   query "file operations" 10
+  show general-read_file
   count tool
   export ./data.json intent
   collections
@@ -377,6 +409,16 @@ class ChromaREPL:
                     )
 
                     self.query_intent(intent, n_results)
+
+                elif command == "show":
+                    if not args:
+                        self.console.print(
+                            "[red]Usage: show <doc_id>[/red]"
+                        )
+                        continue
+
+                    doc_id = args[0]
+                    self.show_document(doc_id)
 
                 elif command == "export":
                     if not args:

@@ -7,7 +7,7 @@
                 "@modelcontextprotocol/server-memory"
             ],
             "env": {
-                "MEMORY_FILE_PATH": "tmp/chapter03/memory.json"
+                "MEMORY_FILE_PATH": "${CHAPTER_ROOT}/memory.json"
             }
         }
     }

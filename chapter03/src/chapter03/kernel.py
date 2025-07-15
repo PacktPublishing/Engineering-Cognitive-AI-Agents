@@ -25,8 +25,13 @@ from jinja2 import Environment, FileSystemLoader
 from chromadb import Collection
 
 # Import all Winston modules
-from common.paths import get_chapter_path
-from common.config import setup_logging, OPENAI_API_KEY, OPENAI_MODEL
+from common.config import (
+    initialize_config,
+    setup_logging,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    config,
+)
 from common import (
     MCPHost,
     IntentGenerator,
@@ -63,7 +68,7 @@ REASONING_TOOLS = [
                     "result": {
                         "type": "string",
                         "description": "The final answer or result if the task was a question or required a specific output",
-                    }
+                    },
                 },
                 "required": ["reason"],
             },
@@ -245,6 +250,12 @@ async def reason_about_task(task_description: str) -> dict[str, Any] | None:
             timestamp=datetime.now().isoformat(),
         )
 
+        # Log the rendered template for debugging
+        logger.debug("REASONING TEMPLATE RENDERED:")
+        logger.debug("=" * 80)
+        logger.debug(prompt)
+        logger.debug("=" * 80)
+
         response = await aclient.chat.completions.create(
             model=MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -316,6 +327,12 @@ async def execute_intent(
             timestamp=datetime.now().isoformat(),
         )
 
+        # Log the rendered template for debugging
+        logger.debug("ACTION TEMPLATE RENDERED:")
+        logger.debug("=" * 80)
+        logger.debug(action_prompt)
+        logger.debug("=" * 80)
+
         # Call OpenAI with action prompt and global ACTION_TOOLS
         response = await aclient.chat.completions.create(
             model=MODEL,
@@ -351,6 +368,12 @@ async def execute_intent(
             # Defensive extraction of required arguments
             tool_uri = arguments.get("tool_uri")
             tool_args = arguments.get("arguments", {})
+
+            # HACK: The mcp.py library has a serialization bug with single-key
+            # dictionaries. Adding a dummy key tricks it into serializing
+            # correctly. The remote tool should ignore the unknown key.
+            if isinstance(tool_args, dict) and len(tool_args) == 1:
+                tool_args["_winston_workaround_"] = "dummy_value"
 
             if not tool_uri:
                 error_msg = "Missing required 'tool_uri' argument for execute_tool"
@@ -407,7 +430,9 @@ async def execute_intent(
 
             except Exception as e:
                 error_msg = f"Tool execution failed: {e}"
-                logger.error(f"EXECUTE_TOOL ERROR: {error_msg}")
+                logger.error(
+                    f"EXECUTE_TOOL ERROR: {error_msg} (args: {tool_args}, type: {type(tool_args)})"
+                )
                 add_to_trace(rationale, f"EXECUTE_TOOL: {tool_uri}", error_msg)
 
         elif function_name == "refine_intent":
@@ -523,8 +548,12 @@ def _setup_environment() -> None:
 
     This must be called before any other Winston operations that use logging.
     """
-    # Configure logging
-    log_file = get_chapter_path("chapter03", "logs", create=True) / "winston.log"
+    # Initialize configuration first and update global config reference
+    global config
+    config = initialize_config("chapter03")
+
+    # Configure logging using centralized config
+    log_file = config.get_chapter_path("logs", create=True) / "winston.log"
     setup_logging(log_file)
 
 
@@ -542,20 +571,29 @@ async def main(task: str | None = None) -> None:
     # Setup environment first (logging, etc.)
     _setup_environment()
 
+    # Log startup banner for easy identification in logs
+    logger.info("🚀 WINSTON STARTUP 🚀")
+    logger.info("=" * 60)
+    logger.info("Winston Chapter 3: Scaling Agency with an Intent Index")
+    logger.info(f"Startup Time: {datetime.now().isoformat()}")
+    logger.info("Status: Initializing cognitive architecture...")
+    logger.info("=" * 60)
+
+    # Access the initialized config object from the global variable
+    if config is None:
+        raise RuntimeError("Configuration not initialized. This should not happen.")
+
     # 1. Setup Database
-    persist_dir = str(get_chapter_path("chapter03", "chroma_db", create=True))
+    persist_dir = str(config.get_chapter_path("chroma_db", create=True))
     collection = initialize_intent_database(persist_dir)
     logger.debug(f"Collection initialized with: {collection.count()} items.")
 
     # 2. Validate Configuration
-    from common.config import validate_config, get_config
+    # Config was already initialized and validated in _setup_environment
 
-    config = get_config()
-    config["INTENT_DB_PERSIST_DIR"] = persist_dir
-    validate_config(config)
-    # 2. Setup MCP Host
+    # 3. Setup MCP Host with variable substitution
     config_path = Path("chapter03") / "mcp_config.json"
-    mcp_host = MCPHost(config_path)
+    mcp_host = MCPHost(config_path, config)
     await mcp_host.startup()
 
     # 3. Check for config changes and regenerate intents if needed

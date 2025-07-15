@@ -1,4 +1,4 @@
-# Engineering Cognitive AI Agent – Source Code Companion
+# Engineering Cognitive AI Agents
 
 This repository is the official source-code companion to the book "Engineering Cognitive AI Agent" by Donald Thompson. It explores the principles and practices of building minimal cognitive agents that maximize LLM capabilities while minimizing orchestration complexity.
 
@@ -46,8 +46,6 @@ To run the REPL, use:
 ```bash
 uv run --package chroma-repl python -m chroma_repl.main
 ```
-
-...
 
 ### Prerequisites
 

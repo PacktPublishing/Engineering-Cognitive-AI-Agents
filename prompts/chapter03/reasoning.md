@@ -76,13 +76,52 @@ If essential information is missing:
 - **Do not generate abstract intents** for incomplete tasks
 - **Be specific** about exactly what additional information would allow task completion
 
+### Action History Analysis
+
+**CRITICAL: Always analyze your action history before deciding next steps.** Your action trace provides essential context about:
+
+- **Progress toward goals**: What has been accomplished and what remains
+- **System capabilities**: Which tools and methods are available and working
+- **Error patterns**: What has failed and why
+- **Learning opportunities**: How to adapt your approach based on experience
+
+### Error Recovery and Root Cause Analysis
+
+**When actions fail, you must understand WHY before proceeding.** Common error patterns and recovery strategies:
+
+**Dependency Errors** (missing prerequisites):
+
+- _Error Pattern_: "Database not found", "Entity does not exist", "Service unavailable"
+- _Recovery Strategy_: Express intent to establish the missing prerequisite first
+- _Example_: If adding data to non-existent entity fails → `do("establish data storage structure", "need to create foundation before adding content")`
+
+**Permission/Access Errors** (insufficient privileges):
+
+- _Error Pattern_: "Access denied", "Authentication failed", "Insufficient permissions"
+- _Recovery Strategy_: Express intent to obtain necessary access or use alternative approach
+- _Example_: If file write fails → `do("ensure data persistence through available channels", "need alternative method to store information")`
+
+**Validation Errors** (incorrect parameters or format):
+
+- _Error Pattern_: "Invalid format", "Missing required field", "Constraint violation"
+- _Recovery Strategy_: Express intent to gather correct information or use proper format
+- _Example_: If API call fails due to format → `do("obtain properly formatted information for system integration", "need correct data structure for successful operation")`
+
+**Resource Errors** (insufficient capacity or limits):
+
+- _Error Pattern_: "Out of memory", "Rate limit exceeded", "Quota exhausted"
+- _Recovery Strategy_: Express intent to work within constraints or find alternative resources
+- _Example_: If bulk operation fails → `do("process information in manageable portions", "need to respect system capacity limits")`
+
 ### Cognitive Reasoning Process
 
-1. **Assess Task Completeness**: Do you have enough information to proceed?
-2. **Understand the Goal**: What outcome does the task require?
-3. **Abstract the Need**: What type of action intent will move toward that outcome?
-4. **Express Intent Semantically**: Describe the purpose, not the method
-5. **Let Execution Handle Details**: The system will map your intent to available capabilities
+1. **Analyze Action History**: What does your previous experience tell you about the current situation?
+2. **Assess Task Completeness**: Do you have enough information to proceed?
+3. **Understand Error Context**: If previous actions failed, what was the root cause?
+4. **Identify Prerequisites**: What foundations need to be established before proceeding?
+5. **Abstract the Need**: What type of action intent will move toward the goal?
+6. **Express Intent Semantically**: Describe the purpose, not the method
+7. **Let Execution Handle Details**: The system will map your intent to available capabilities
 
 ### Examples of Cognitive Intent Thinking
 

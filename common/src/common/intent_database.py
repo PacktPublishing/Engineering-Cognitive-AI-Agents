@@ -302,6 +302,50 @@ def get_item_by_id(collection: Collection, item_id: str) -> dict[str, Any] | Non
     return None
 
 
+@logger.catch
+def get_full_item_by_id(collection: Collection, item_id: str) -> dict[str, Any] | None:
+    """Retrieve a complete item from the database by its unique ID.
+
+    This function fetches both the document text and metadata for a given
+    item ID, combining them into a single dictionary for full display.
+
+    Parameters
+    ----------
+    collection : Collection
+        ChromaDB collection to query.
+    item_id : str
+        The unique ID of the item to retrieve.
+
+    Returns
+    -------
+    dict[str, Any] | None
+        Dictionary containing id, document text, and flattened metadata,
+        or None if not found.
+    """
+    result = collection.get(ids=[item_id], include=["documents", "metadatas"])
+
+    ids = result.get("ids")
+    documents = result.get("documents")
+    metadatas = result.get("metadatas")
+
+    if (not ids or not documents or not metadatas or
+        not ids[0] or not documents[0] or not metadatas[0]):
+        return None
+
+    # Combine all data into a single dictionary
+    item_data: dict[str, Any] = {
+        "id": ids[0],
+        "document": documents[0],
+    }
+
+    # Flatten metadata into the main dictionary
+    if metadatas[0]:
+        for key, value in metadatas[0].items():
+            item_data[key] = value
+
+    return item_data
+
+
 
 @logger.catch
 def clear_collection(collection: Collection) -> None:

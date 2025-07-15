@@ -14,8 +14,7 @@ from typing import Any, cast
 from openai import OpenAI
 from loguru import logger
 from jinja2 import Environment, FileSystemLoader
-from common import get_chapter_path, setup_logging
-from common.config import OPENAI_API_KEY, OPENAI_MODEL
+from common.config import initialize_config, setup_logging, OPENAI_API_KEY, OPENAI_MODEL
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -345,8 +344,9 @@ def _setup_environment() -> None:
 
     Configures logging and other environment settings.
     """
-    # Configure logging using common utilities
-    log_file = get_chapter_path("chapter02", "logs", create=True) / "winston_basic.log"
+    # Initialize configuration and configure logging using centralized config
+    config = initialize_config("chapter02")
+    log_file = config.get_chapter_path("logs", create=True) / "winston_basic.log"
     setup_logging(log_file=str(log_file))
 
 

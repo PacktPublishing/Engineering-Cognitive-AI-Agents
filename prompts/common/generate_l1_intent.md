@@ -29,6 +29,6 @@ You are an AI assistant tasked with generating a concise "action intent" for a s
 
 ## Task
 
-Based on the tool information and guidelines provided, generate a single, clear, and actionable intent. The intent should be a short phrase in lowercase.
+Based on the tool information and guidelines provided, generate a single, clear, and actionable intent. The intent should be a short phrase in lowercase without any quotation marks or additional formatting.
 
 **Generated Intent:**

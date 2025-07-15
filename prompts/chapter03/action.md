@@ -22,19 +22,28 @@ The following options have been semantically matched to your intent:
 **Description**: {{ option.document }}
 
 {% if option.type == "L1" and option.tools %}
+{% set tools_data = option.tools|from_json %}
 
-**Tool URI**: {{ (option.tools|from_json)[0] }}
-{% set tool_uri = (option.tools|from_json)[0] %}
-{% set server_name = tool_uri.split('::')[1] %}
-{% set tool_name = tool_uri.split('::')[2] %}
-**Server**: {{ server_name }}
-**Tool**: {{ tool_name }}
+**Available Tools** ({{ tools_data|length }} tool{% if tools_data|length > 1 %}s{% endif %}):
 
-**Parameters**:
-{% set schema = option.schema | from_json %}
-{% for param_name, param_info in schema.properties.items() %}
+{% for tool in tools_data %}
+{% set tool_uri = tool.uri %}
+{% set uri_parts = tool_uri.split('::') %}
+{% set server_name = uri_parts[1] %}
+{% set tool_name = uri_parts[2] %}
 
-- `{{ param_name }}` ({{ param_info.type }}{% if param_name in schema.required %}, required{% endif %}): {{ param_info.description }}
+#### Tool {{ loop.index }}: {{ tool_name }}
+
+- **URI**: {{ tool_uri }}
+- **Server**: {{ server_name }}
+- **Tool**: {{ tool_name }}
+
+**Parameters Schema**:
+
+```json
+{{ tool.schema | tojson }}
+```
+
 {% endfor %}
 {% endif %}
 

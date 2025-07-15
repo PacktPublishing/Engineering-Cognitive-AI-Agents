@@ -1,42 +1,29 @@
-"""Common utilities for the ECAA book project."""
+"""Common utilities for the Winston project.
 
-from .config import get_config, setup_logging, validate_config
-from .paths import get_chapter_path, get_chapter_config, clean_chapter, clean_all
-from .intent_database import (
-    initialize_intent_database,
-    index_item,
-    query_by_intent,
-    index_tool,
-    query_tools_by_intent,
-    index_intent_node,
-    query_intent_nodes,
-    get_item_by_id,
-    clear_collection,
-    get_collection_metadata,
-    save_collection_metadata,
-)
-from .intent_generator import IntentGenerator
+This module provides shared functionality including:
+- Centralized configuration management with Config class
+- MCP (Model Context Protocol) host management
+- Intent database operations and queries
+- Intent generation for tool discovery
+
+All modules in this package follow Winston's core principles:
+- Minimal cognitive architecture
+- Trust model intelligence over orchestration
+- Protocol-driven extensibility
+"""
+
+from .config import Config, initialize_config, setup_logging, config
 from .mcp_host import MCPHost
+from .intent_database import initialize_intent_database, query_intent_nodes
+from .intent_generator import IntentGenerator
 
 __all__ = [
-    "get_config",
+    "Config",
+    "initialize_config",
     "setup_logging",
-    "validate_config",
-    "get_chapter_path",
-    "get_chapter_config",
-    "clean_chapter",
-    "clean_all",
-    "initialize_intent_database",
-    "index_item",
-    "query_by_intent",
-    "index_tool",
-    "query_tools_by_intent",
-    "index_intent_node",
-    "query_intent_nodes",
-    "get_item_by_id",
-    "clear_collection",
-    "get_collection_metadata",
-    "save_collection_metadata",
-    "IntentGenerator",
+    "config",
     "MCPHost",
+    "initialize_intent_database",
+    "query_intent_nodes",
+    "IntentGenerator",
 ]
